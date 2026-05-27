@@ -1,0 +1,18 @@
+{
+  "name": "ministry-budget-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local RTL web app for managing Ministry of Education framework orders, project orders, collections, and reports.",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node tests/run-tests.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
+  }
+}

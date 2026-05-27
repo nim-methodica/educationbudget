@@ -1,0 +1,284 @@
+﻿<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>מערכת ניהול תקציב משרד החינוך</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-block">
+        <img class="brand-logo" src="/logo-hamisgeret.png" alt="המסגרת" />
+        <div>
+          <h1>ניהול תקציב והזמנות במכרז דיגיטציה</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <label class="select-label">
+          הזמנת מסגרת
+          <select id="frameworkSelect"></select>
+        </label>
+
+        <a id="frameworkItemsBtn" class="quiet-action" href="#framework-items" title="הצג את פריטי הזמנת המסגרת לפי תקנות">פריטי מסגרת</a>
+        <button id="budgetControlBtn" class="quiet-action" type="button" title="בקרת תקציב לפי תקנות">בקרת תקציב</button>
+        <button id="reserveSimulationBtn" class="quiet-action" type="button" title="תכנון תקציב עתידי">תכנון עתידי</button>
+        <button id="setDefaultBtn" class="quiet-action" title="סמן את הזמנת המסגרת הנבחרת כפעילה">סמן כפעיל</button>
+        <button id="newFrameworkBtn" class="quiet-action" title="פתח הזמנת מסגרת לשנה חדשה">הזמנה חדשה</button>
+      </div>
+      <div class="current-user">
+        <button id="adminUsersBtn" class="user-menu-button" type="button" title="ניהול משתמשים">
+          <span id="currentUserGreeting">שלום, מנהל מערכת</span>
+          <span class="menu-chevron" aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary-strip" id="frameworkSummary"></section>
+
+      <section class="workspace">
+        <div class="primary-panel">
+          <div class="section-header">
+            <div>
+              <h2>תקנות</h2>
+              <p class="muted">העלאת הזמנה חדשה מתבצעת פעם אחת, והמערכת משייכת אותה לתקנה לפי סעיפי ההזמנה.</p>
+            </div>
+            <button id="globalOrderUploadBtn" class="secondary" type="button">העלאת הזמנת פרויקט</button>
+          </div>
+          <div id="regulationGrid" class="regulation-grid"></div>
+        </div>
+
+        <aside class="side-panel">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="alerts">התראות</button>
+            <button class="tab" data-tab="monthly">גביה חודשית</button>
+          </div>
+          <div id="sideContent"></div>
+        </aside>
+      </section>
+
+      <section id="detailPanel" class="detail-panel hidden"></section>
+    </main>
+
+    <dialog id="orderDialog">
+      <form method="dialog" class="dialog-body" id="orderForm">
+        <div class="section-header">
+          <div>
+            <h2>העלאת הזמנת פרויקט</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div class="file-first-panel">
+          <label>קובץ הזמנת עבודה <input name="sourceFile" type="file" accept=".pdf,.xlsx,.xls,.doc,.docx,.png,.jpg,.jpeg" /></label>
+          <div id="orderExtractionStatus" class="extraction-status">בחר קובץ כדי להתחיל קליטה.</div>
+        </div>
+        <div class="form-grid order-fields-grid hidden">
+          <label>מספר הזמנה <input name="orderNumber" required placeholder="25-053" /></label>
+          <label>שם פרויקט <input name="projectName" required /></label>
+          <label>יחידה מזמינה <input name="customerUnit" /></label>
+          <label>תאריך הזמנה <input name="issuedAt" type="date" /></label>
+          <label>סיום מתוכנן <input name="expectedEndAt" type="date" /></label>
+        </div>
+        <section class="order-lines-editor hidden" aria-label="שורות פריטים">
+          <div class="section-header compact-header">
+            <div>
+              <h3>שורות פריטים</h3>
+            </div>
+            <button type="button" class="secondary" id="addOrderLineBtn">הוסף שורה</button>
+          </div>
+          <div class="table-wrap order-lines-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>סעיף</th>
+                  <th>שם פריט</th>
+                  <th>כמות</th>
+                  <th>עלות ללא מע״מ</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="orderLinesBody"></tbody>
+            </table>
+          </div>
+        </section>
+        <section id="orderIntakePreview" class="intake-preview hidden"></section>
+        <div class="dialog-actions">
+          <button type="button" class="secondary hidden" id="sampleOrderBtn">טעינת דוגמה</button>
+          <div class="actions-row no-margin">
+            <button type="button" class="secondary hidden" id="backToOrderEditBtn">בחר קובץ אחר</button>
+            <button type="button" class="hidden" id="confirmOrderIntakeBtn">קלוט הזמנה</button>
+            <button type="submit" class="hidden" id="reviewOrderBtn">בדוק הזמנה</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="frameworkDialog">
+      <form method="dialog" class="dialog-body" id="frameworkForm">
+        <div class="section-header">
+          <div>
+            <h2>פתיחת הזמנת מסגרת שנתית</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div class="form-grid">
+          <label>שנה <input name="year" required placeholder="תשפ״ז" /></label>
+          <label>שם הזמנה <input name="title" required placeholder="הזמנת מסגרת תשפ״ז" /></label>
+          <label>מספר הזמנה <input name="orderNumber" /></label>
+          <label>קובץ מקור <input name="sourceFile" type="file" accept=".pdf,.xlsx,.xls,.doc,.docx" /></label>
+        </div>
+        <div class="dialog-actions">
+          <button type="submit">פתח הזמנה</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="collectionDialog">
+      <form method="dialog" class="dialog-body" id="collectionForm">
+        <div class="section-header">
+          <div>
+            <h2>גביה חודשית חדשה</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div class="form-grid">
+          <label>חודש גביה <input name="month" type="month" required /></label>
+          <label>שם תיק <input name="title" required placeholder="גביית מאי 2026" /></label>
+          <label>הצמדה למדד <input name="indexationAmount" type="number" min="0" step="0.01" value="0" /></label>
+        </div>
+        <div class="dialog-actions">
+          <button type="submit">פתח תיק גביה</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="collectionEditDialog">
+      <form method="dialog" class="dialog-body" id="collectionEditForm">
+        <div class="section-header">
+          <div>
+            <h2>עריכת תיק גביה</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <input name="id" type="hidden" />
+        <div class="form-grid">
+          <label>חודש גביה <input name="month" type="month" required /></label>
+          <label>שם תיק <input name="title" required /></label>
+          <label>סטטוס
+            <select name="status" required>
+              <option value="prepare-reports">הכנת דוחות</option>
+              <option value="sent-for-approval">שליחה לאישור</option>
+              <option value="invoice-issued">הוצאת חשבונית</option>
+              <option value="client-final-approved">אישור סופי לקוח</option>
+              <option value="invoice-uploaded-to-merkava">חשבונית עלתה למרכבה</option>
+              <option value="paid">שולם</option>
+            </select>
+          </label>
+          <label>הצמדה למדד <input name="indexationAmount" type="number" min="0" step="0.01" value="0" /></label>
+        </div>
+        <div class="dialog-actions">
+          <button type="submit">שמור תיק גביה</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="monthlyWorkspaceDialog">
+      <div class="dialog-body monthly-workspace-dialog">
+        <div class="section-header">
+          <div>
+            <h2>גביה חודשית</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div id="monthlyWorkspaceContent"></div>
+      </div>
+    </dialog>
+
+
+    <dialog id="usersDialog">
+      <form method="dialog" class="dialog-body" id="userForm">
+        <div class="section-header">
+          <div>
+            <h2>ניהול משתמשים</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div id="usersList" class="users-list"></div>
+        <div class="form-grid">
+          <input type="hidden" name="id" />
+          <label>שם משתמש <input name="name" required /></label>
+          <label>מייל <input name="email" type="email" required /></label>
+          <label>סוג משתמש
+            <select name="role" required>
+              <option value="admin">אדמין</option>
+              <option value="viewer">צפייה בלבד</option>
+            </select>
+          </label>
+          <label>סיסמה <input name="password" type="password" autocomplete="new-password" /></label>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" id="clearUserFormBtn">נקה</button>
+          <button type="submit">שמור משתמש</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="frameworkItemsDialog">
+      <div class="dialog-body framework-items-dialog">
+        <div class="section-header">
+          <div>
+            <h2 id="frameworkItemsTitle">פריטי הזמנת מסגרת</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div id="frameworkItemsContent"></div>
+      </div>
+    </dialog>
+
+    <dialog id="budgetControlDialog">
+      <div class="dialog-body budget-control-dialog">
+        <div class="section-header">
+          <div>
+            <h2 id="budgetControlTitle">בקרת תקציב</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div id="budgetControlContent"></div>
+      </div>
+    </dialog>
+
+    <dialog id="reserveSimulationDialog">
+      <div class="dialog-body reserve-simulation-dialog">
+        <div class="section-header">
+          <div>
+            <h2>תכנון תקציב עתידי</h2>
+            <p class="muted">טיוטה לא משפיעה על ההזמנות בפועל עד שמחליטים לקלוט הזמנה.</p>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div id="reserveSimulationContent"></div>
+      </div>
+    </dialog>
+
+    <dialog id="orderDetailsDialog">
+      <div class="dialog-body order-details-dialog">
+        <div class="section-header">
+          <div>
+            <h2 id="orderDetailsTitle">פרטי הזמנה</h2>
+            <p id="orderDetailsSubtitle"></p>
+          </div>
+          <button id="closeOrderDetailsBtn" class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div id="orderDetailsContent"></div>
+      </div>
+    </dialog>
+    <script src="/app.js?v=20260527-future-planning-table" type="module"></script>
+  </body>
+</html>
+
+
+
+
+
+

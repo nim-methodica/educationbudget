@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Local data and uploaded documents
+data/*.json
+data/*.sqlite
+data/*.db
+data/*.db-*
+data/*.sqlite-*
+uploads/
+outputs/
+
+# Local logs and temporary files
+*.log
+*.tmp
+.tmp/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

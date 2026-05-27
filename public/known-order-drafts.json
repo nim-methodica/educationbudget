@@ -1,0 +1,775 @@
+{
+  "25-092": {
+    "orderNumber": "25-092",
+    "projectName": "עדכונים בהשתלמויות עתירות ידע",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "18.1",
+        "quantity": 14,
+        "unitCost": 330.0
+      },
+      {
+        "code": "19.1",
+        "quantity": 10,
+        "unitCost": 1500.0
+      }
+    ]
+  },
+  "25-091": {
+    "orderNumber": "25-091",
+    "projectName": "בתי ישראל - פיתוח שלב ב",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "18.2",
+        "quantity": 6,
+        "unitCost": 825.0
+      },
+      {
+        "code": "22.2",
+        "quantity": 7,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "23.3",
+        "quantity": 7,
+        "unitCost": 18000.0
+      },
+      {
+        "code": "33.1",
+        "quantity": 6,
+        "unitCost": 13000.0
+      },
+      {
+        "code": "40",
+        "quantity": 180,
+        "unitCost": 220.0
+      },
+      {
+        "code": "44",
+        "quantity": 48,
+        "unitCost": 137.5
+      }
+    ]
+  },
+  "25-054": {
+    "orderNumber": "25-054",
+    "projectName": "פיתוח רכיב חסימה לקיו בחמ\"ד",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.2",
+        "quantity": 1,
+        "unitCost": 17000.0
+      }
+    ]
+  },
+  "25-050": {
+    "orderNumber": "25-050",
+    "projectName": "סרטון AI עבור החמ\"ד בנושא חברתי",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "25.2",
+        "quantity": 1,
+        "unitCost": 10500.0
+      }
+    ]
+  },
+  "25-059": {
+    "orderNumber": "25-059",
+    "projectName": "סרטוני בינה מלאכותית שפ\"י - לחמ\"ד",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "25.2",
+        "quantity": 3,
+        "unitCost": 10500.0
+      }
+    ]
+  },
+  "25-066": {
+    "orderNumber": "25-066",
+    "projectName": "הפעלת בגרופ קיץ",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "13",
+        "quantity": 832,
+        "unitCost": 285.0
+      },
+      {
+        "code": "41",
+        "quantity": 120,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-030": {
+    "orderNumber": "25-030",
+    "projectName": "הזנקת תחרות סמארטקאפ",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "23.3",
+        "quantity": 1,
+        "unitCost": 18000.0
+      },
+      {
+        "code": "35",
+        "quantity": 3,
+        "unitCost": 45.0
+      }
+    ]
+  },
+  "25-021": {
+    "orderNumber": "25-021",
+    "projectName": "איפיון מעמיק מתמטיקה STEM",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "41",
+        "quantity": 25,
+        "unitCost": 330.0
+      },
+      {
+        "code": "42",
+        "quantity": 40,
+        "unitCost": 280.0
+      }
+    ]
+  },
+  "25-022": {
+    "orderNumber": "25-022",
+    "projectName": "הזנת משימות אוריינות לסביבת המודל בעברית וערבית מתמטיקה ומדעים STEM",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "29.1",
+        "quantity": 12,
+        "unitCost": 1100.0
+      },
+      {
+        "code": "40",
+        "quantity": 45,
+        "unitCost": 220.0
+      },
+      {
+        "code": "44",
+        "quantity": 50,
+        "unitCost": 137.5
+      }
+    ]
+  },
+  "25-052": {
+    "orderNumber": "25-052",
+    "projectName": "פיתוחי סטם מדעים נובמבר-ינואר",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "18.2",
+        "quantity": 84,
+        "unitCost": 825.0
+      },
+      {
+        "code": "22.2",
+        "quantity": 8,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "27.2",
+        "quantity": 3,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "29.1",
+        "quantity": 3,
+        "unitCost": 1100.0
+      },
+      {
+        "code": "29.2",
+        "quantity": 3,
+        "unitCost": 2000.0
+      },
+      {
+        "code": "33.1",
+        "quantity": 14,
+        "unitCost": 13000.0
+      },
+      {
+        "code": "40",
+        "quantity": 29,
+        "unitCost": 220.0
+      },
+      {
+        "code": "41",
+        "quantity": 333,
+        "unitCost": 330.0
+      },
+      {
+        "code": "44",
+        "quantity": 146,
+        "unitCost": 137.5
+      }
+    ]
+  },
+  "25-053": {
+    "orderNumber": "25-053",
+    "projectName": "פיתוחי סטם מתמטיקה נובמבר-ינואר",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "18.2",
+        "quantity": 28,
+        "unitCost": 825.0
+      },
+      {
+        "code": "22.2",
+        "quantity": 11,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "33.1",
+        "quantity": 17,
+        "unitCost": 13000.0
+      },
+      {
+        "code": "40",
+        "quantity": 26,
+        "unitCost": 220.0
+      },
+      {
+        "code": "41",
+        "quantity": 25,
+        "unitCost": 330.0
+      },
+      {
+        "code": "44",
+        "quantity": 117,
+        "unitCost": 137.5
+      }
+    ]
+  },
+  "25-070": {
+    "orderNumber": "25-070",
+    "projectName": "פיתוח תוכן 720 מדעים לכיתה ז' חלק א",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "20.2",
+        "quantity": 18,
+        "unitCost": 3700.0
+      },
+      {
+        "code": "22.2",
+        "quantity": 25,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "23.2",
+        "quantity": 12,
+        "unitCost": 12000.0
+      },
+      {
+        "code": "27.1",
+        "quantity": 576,
+        "unitCost": 1750.0
+      },
+      {
+        "code": "27.2",
+        "quantity": 6,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "33.1",
+        "quantity": 49,
+        "unitCost": 13000.0
+      },
+      {
+        "code": "41",
+        "quantity": 491,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-019": {
+    "orderNumber": "25-019",
+    "projectName": "אפיון מעמיק תפיסת לימודים 720",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "34.2",
+        "quantity": 2,
+        "unitCost": 4400.0
+      },
+      {
+        "code": "41",
+        "quantity": 100,
+        "unitCost": 330.0
+      },
+      {
+        "code": "42",
+        "quantity": 70,
+        "unitCost": 280.0
+      }
+    ]
+  },
+  "25-024": {
+    "orderNumber": "25-024",
+    "projectName": "אפיון מעמיק מתמטיקה  720 בנושא מעגל ",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "41",
+        "quantity": 45,
+        "unitCost": 330.0
+      },
+      {
+        "code": "42",
+        "quantity": 45,
+        "unitCost": 280.0
+      }
+    ]
+  },
+  "25-026": {
+    "orderNumber": "25-026",
+    "projectName": "אפיון מעמיק מדעים 720 בנושא הובלת חומרים בתא",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "41",
+        "quantity": 20,
+        "unitCost": 330.0
+      },
+      {
+        "code": "42",
+        "quantity": 30,
+        "unitCost": 280.0
+      }
+    ]
+  },
+  "25-027": {
+    "orderNumber": "25-027",
+    "projectName": "אפיון מעמיק מדעים 720 בנושא אנרגיה",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "41",
+        "quantity": 70,
+        "unitCost": 330.0
+      },
+      {
+        "code": "42",
+        "quantity": 95,
+        "unitCost": 280.0
+      }
+    ]
+  },
+  "25-047": {
+    "orderNumber": "25-047",
+    "projectName": "פיתוח תוכן במדעים 720  - אנרגיה",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "18.2",
+        "quantity": 1,
+        "unitCost": 825.0
+      },
+      {
+        "code": "22.2",
+        "quantity": 9,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "23.2",
+        "quantity": 13,
+        "unitCost": 12000.0
+      },
+      {
+        "code": "23.3",
+        "quantity": 4,
+        "unitCost": 18000.0
+      },
+      {
+        "code": "25.1",
+        "quantity": 29,
+        "unitCost": 7000.0
+      },
+      {
+        "code": "27.1",
+        "quantity": 163,
+        "unitCost": 1750.0
+      },
+      {
+        "code": "27.2",
+        "quantity": 3,
+        "unitCost": 6000.0
+      },
+      {
+        "code": "33.1",
+        "quantity": 17,
+        "unitCost": 13000.0
+      },
+      {
+        "code": "41",
+        "quantity": 250,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-048": {
+    "orderNumber": "25-048",
+    "projectName": "פיתוח תוכן במתמטיקה 720  - זוויות",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.1",
+        "quantity": 1,
+        "unitCost": 10000.0
+      },
+      {
+        "code": "18.1",
+        "quantity": 1,
+        "unitCost": 330.0
+      },
+      {
+        "code": "18.2",
+        "quantity": 18,
+        "unitCost": 825.0
+      },
+      {
+        "code": "23.1",
+        "quantity": 15,
+        "unitCost": 8500.0
+      },
+      {
+        "code": "23.2",
+        "quantity": 39,
+        "unitCost": 12000.0
+      },
+      {
+        "code": "23.3",
+        "quantity": 19,
+        "unitCost": 18000.0
+      },
+      {
+        "code": "27.1",
+        "quantity": 265,
+        "unitCost": 1750.0
+      },
+      {
+        "code": "33.1",
+        "quantity": 14,
+        "unitCost": 13000.0
+      },
+      {
+        "code": "40",
+        "quantity": 155,
+        "unitCost": 220.0
+      },
+      {
+        "code": "41",
+        "quantity": 250,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-085": {
+    "orderNumber": "25-085",
+    "projectName": "אפיון מעמיק 720 לשנת תשפ\"ז",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.2",
+        "quantity": 1,
+        "unitCost": 17000.0
+      },
+      {
+        "code": "41",
+        "quantity": 80,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-086": {
+    "orderNumber": "25-086",
+    "projectName": "השלמות פיתוח 720",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "40",
+        "quantity": 55,
+        "unitCost": 220.0
+      }
+    ]
+  },
+  "25-011": {
+    "orderNumber": "25-011",
+    "projectName": "הפעלת ממירי בגרות ספרות ממלכתי וספרות חמד",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "12",
+        "quantity": 578,
+        "unitCost": 190.0
+      }
+    ]
+  },
+  "25-037": {
+    "orderNumber": "25-037",
+    "projectName": "הפעלת ממירי בגרות ספרות ממלכתי וספרות חמד חלק ב",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "12",
+        "quantity": 605,
+        "unitCost": 190.0
+      }
+    ]
+  },
+  "25-078": {
+    "orderNumber": "25-078",
+    "projectName": "התאמת מנגנון דוחות בממירי בגרות ספרות ממלכתי וחמד",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.1",
+        "quantity": 3,
+        "unitCost": 10000.0
+      },
+      {
+        "code": "3.2",
+        "quantity": 2,
+        "unitCost": 17000.0
+      },
+      {
+        "code": "3.3",
+        "quantity": 1,
+        "unitCost": 23000.0
+      }
+    ]
+  },
+  "25-010": {
+    "orderNumber": "25-010",
+    "projectName": "הפעלת קורסים דיגיטליים בקולנוע ומוזיקה חמ\"ד - חלק א",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "12",
+        "quantity": 294,
+        "unitCost": 190.0
+      }
+    ]
+  },
+  "25-038": {
+    "orderNumber": "25-038",
+    "projectName": "הפעלת קורסים דיגיטליים  חמ\"ד - חלק ב",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "12",
+        "quantity": 477,
+        "unitCost": 190.0
+      }
+    ]
+  },
+  "25-001": {
+    "orderNumber": "25-001",
+    "projectName": "הפעלת בגרופ חורף ",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "13",
+        "quantity": 320,
+        "unitCost": 285.0
+      },
+      {
+        "code": "41",
+        "quantity": 40,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-006": {
+    "orderNumber": "25-006",
+    "projectName": "פיתוח שיפורים לקיו תשפ\"ו - חלק א",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.1",
+        "quantity": 6,
+        "unitCost": 10000.0
+      },
+      {
+        "code": "3.2",
+        "quantity": 4,
+        "unitCost": 17000.0
+      },
+      {
+        "code": "3.3",
+        "quantity": 8,
+        "unitCost": 23000.0
+      }
+    ]
+  },
+  "25-012": {
+    "orderNumber": "25-012",
+    "projectName": "פיתוח שיפורים לקיו תשפ\"ו - חלק ב",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.1",
+        "quantity": 1,
+        "unitCost": 10000.0
+      },
+      {
+        "code": "3.2",
+        "quantity": 1,
+        "unitCost": 17000.0
+      },
+      {
+        "code": "3.3",
+        "quantity": 10,
+        "unitCost": 23000.0
+      }
+    ]
+  },
+  "25-013": {
+    "orderNumber": "25-013",
+    "projectName": "פיתוח שיפורים לקיו תשפ\"ו - חלק ג",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.3",
+        "quantity": 4,
+        "unitCost": 23000.0
+      }
+    ]
+  },
+  "25-058": {
+    "orderNumber": "25-058",
+    "projectName": "שדרוגי קיו ינואר תשפ\"ו",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "3.1",
+        "quantity": 2,
+        "unitCost": 10000.0
+      },
+      {
+        "code": "3.2",
+        "quantity": 4,
+        "unitCost": 17000.0
+      },
+      {
+        "code": "41",
+        "quantity": 12,
+        "unitCost": 330.0
+      }
+    ]
+  },
+  "25-061": {
+    "orderNumber": "25-061",
+    "projectName": "סרטוני קיו לחברה הערבית",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "25.2",
+        "quantity": 3,
+        "unitCost": 10500.0
+      },
+      {
+        "code": "44",
+        "quantity": 3,
+        "unitCost": 137.5
+      }
+    ]
+  },
+  "25-002": {
+    "orderNumber": "25-002",
+    "projectName": "הזנת משימות אורייניות במדעים ובמתמטיקה",
+    "customerUnit": "",
+    "issuedAt": "",
+    "expectedEndAt": "",
+    "lines": [
+      {
+        "code": "21.1",
+        "quantity": 10,
+        "unitCost": 860.0
+      },
+      {
+        "code": "40",
+        "quantity": 10,
+        "unitCost": 220.0
+      },
+      {
+        "code": "44",
+        "quantity": 10,
+        "unitCost": 137.5
+      }
+    ]
+  }
+}
