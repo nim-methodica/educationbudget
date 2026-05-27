@@ -6,11 +6,13 @@ import { inflateRawSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { initializeStorage, readData, saveData } from "./storage.js";
+import { getStorageStatus, initializeStorage, readData, saveData } from "./storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(globalThis.process?.env?.PORT || 4173);
 const DATA_DIR = path.join(__dirname, "data");
+const DEFAULT_DB_DIR = path.join(globalThis.process?.env?.LOCALAPPDATA || DATA_DIR, "educationbudget");
+const DB_FILE = globalThis.process?.env?.BUDGET_DB_PATH || path.join(DEFAULT_DB_DIR, "budget.sqlite");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const OUTPUTS_DIR = path.join(__dirname, "outputs");
 const UPLOADS_DIR = path.join(__dirname, "uploads");
@@ -1028,6 +1030,10 @@ async function handleApi(req, res, url) {
     });
   }
 
+  if (req.method === "GET" && url.pathname === "/api/storage") {
+    return json(res, getStorageStatus());
+  }
+
   if (req.method === "PATCH" && parts[1] === "frameworks" && parts[3] === "default") {
     const framework = findFramework(data, parts[2]);
     if (!framework) return notFound(res);
@@ -1334,7 +1340,7 @@ async function serveMonthlyCaseDocument(data, res, caseId, documentId) {
   }
 }
 
-await initializeStorage({ dataDir: DATA_DIR, normalizeData, seedData });
+await initializeStorage({ dataDir: DATA_DIR, dbFile: DB_FILE, normalizeData, seedData });
 
 http.createServer(async (req, res) => {
   try {

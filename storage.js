@@ -7,11 +7,17 @@ let paths;
 let normalize;
 let seed;
 let usingSqlite = false;
+let storageStatus = {
+  mode: "uninitialized",
+  dbFile: "",
+  jsonFile: "",
+  error: ""
+};
 
-export async function initializeStorage({ dataDir, normalizeData, seedData }) {
+export async function initializeStorage({ dataDir, dbFile, normalizeData, seedData }) {
   paths = {
     dataDir,
-    dbFile: path.join(dataDir, "budget.sqlite"),
+    dbFile: dbFile || path.join(dataDir, "budget.sqlite"),
     jsonFile: path.join(dataDir, "app-data.json")
   };
   normalize = normalizeData;
@@ -19,12 +25,19 @@ export async function initializeStorage({ dataDir, normalizeData, seedData }) {
 
   await mkdir(dataDir, { recursive: true });
   try {
+    await mkdir(path.dirname(paths.dbFile), { recursive: true });
     db = new Database(paths.dbFile);
     db.pragma("foreign_keys = ON");
     createSchema();
 
     const hasState = db.prepare("SELECT 1 FROM app_state WHERE id = 1").get();
     usingSqlite = true;
+    storageStatus = {
+      mode: "sqlite",
+      dbFile: paths.dbFile,
+      jsonFile: paths.jsonFile,
+      error: ""
+    };
     if (!hasState) {
       const initialData = await readJsonStateOrSeed();
       await saveData(initialData);
@@ -32,9 +45,19 @@ export async function initializeStorage({ dataDir, normalizeData, seedData }) {
   } catch (error) {
     db = null;
     usingSqlite = false;
+    storageStatus = {
+      mode: "json-fallback",
+      dbFile: paths.dbFile,
+      jsonFile: paths.jsonFile,
+      error: error.message
+    };
     console.warn(`SQLite storage is unavailable, falling back to JSON: ${error.message}`);
     await ensureJsonState();
   }
+}
+
+export function getStorageStatus() {
+  return { ...storageStatus };
 }
 
 export async function readData() {
