@@ -4,6 +4,7 @@ node_modules/
 # Local data and uploaded documents
 data/*.json
 data/*.bak
+data/backups/
 data/*.sqlite
 data/*.db
 data/*.db-*
