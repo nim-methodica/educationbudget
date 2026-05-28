@@ -5,6 +5,7 @@ node_modules/
 data/*.json
 data/*.bak
 data/backups/
+data/educationbudget/
 data/*.sqlite
 data/*.db
 data/*.db-*

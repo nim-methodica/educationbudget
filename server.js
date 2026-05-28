@@ -39,7 +39,22 @@ function normalizeData(data) {
   data.defaultFrameworkId ??= data.frameworks[0]?.id ?? null;
   data.monthlyCases ??= [];
   data.users ??= [];
+  removeDuplicateMonthlyCollections(data);
   return data;
+}
+
+function removeDuplicateMonthlyCollections(data) {
+  for (const framework of data.frameworks || []) {
+    for (const regulation of framework.regulations || []) {
+      for (const order of regulation.projectOrders || []) {
+        order.collections = (order.collections || []).filter((collection) => {
+          const source = String(collection.sourceDocumentName || "");
+          const isAprilOutputReport = source.includes("042026");
+          return !(isAprilOutputReport && collection.month !== "2026-04");
+        });
+      }
+    }
+  }
 }
 
 function seedData() {
@@ -178,18 +193,20 @@ function orderReservedAmount(order) {
 }
 
 function collectOrderAmount(order) {
-  if (Number.isFinite(order.paidWithoutVatTotal)) return order.paidWithoutVatTotal;
-  if (Number.isFinite(order.paidWithVatTotal)) return order.paidWithVatTotal / (1 + VAT_RATE);
-  return order.collections
+  const collectedFromLines = (order.collections || [])
     .filter((collection) => collection.status === "approved")
     .reduce((sum, collection) => {
       if (Number.isFinite(collection.amountWithoutVat)) return sum + collection.amountWithoutVat;
-      return sum + collection.lineCollections.reduce((lineSum, collectedLine) => {
+      return sum + (collection.lineCollections || []).reduce((lineSum, collectedLine) => {
         if (Number.isFinite(collectedLine.amountWithoutVat)) return lineSum + collectedLine.amountWithoutVat;
-        const line = order.lines.find((entry) => entry.code === collectedLine.code);
+        const line = (order.lines || []).find((entry) => entry.code === collectedLine.code);
         return lineSum + (collectedLine.unitCost || line?.unitCost || 0) * collectedLine.quantity;
       }, 0);
     }, 0);
+  if (collectedFromLines > 0) return collectedFromLines;
+  if (Number.isFinite(order.paidWithoutVatTotal)) return order.paidWithoutVatTotal;
+  if (Number.isFinite(order.paidWithVatTotal)) return order.paidWithVatTotal / (1 + VAT_RATE);
+  return 0;
 }
 
 function getLowStockItems(regulation) {

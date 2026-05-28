@@ -260,13 +260,15 @@ function enrichOrderLocally(order, regulation) {
   });
   const reserved = lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);
   const detailedCollected = lines.reduce((sum, line) => sum + line.collectedQuantity * line.unitCost, 0);
-  const collected = Number.isFinite(order.paidWithoutVatTotal)
-    ? Number(order.paidWithoutVatTotal)
-    : Number.isFinite(order.paidWithVatTotal)
-      ? Number(order.paidWithVatTotal) / (1 + VAT_RATE)
-      : collectedAmountFromReports > 0
-        ? collectedAmountFromReports
-        : detailedCollected;
+  const collected = collectedAmountFromReports > 0
+    ? collectedAmountFromReports
+    : detailedCollected > 0
+      ? detailedCollected
+      : Number.isFinite(order.paidWithoutVatTotal)
+        ? Number(order.paidWithoutVatTotal)
+        : Number.isFinite(order.paidWithVatTotal)
+          ? Number(order.paidWithVatTotal) / (1 + VAT_RATE)
+          : 0;
   return {
     ...order,
     lines,
@@ -343,9 +345,7 @@ function getOrderReservedAmount(order) {
 }
 
 function getOrderCollectedAmount(order) {
-  if (Number.isFinite(order.paidWithoutVatTotal)) return order.paidWithoutVatTotal;
-  if (Number.isFinite(order.paidWithVatTotal)) return order.paidWithVatTotal / (1 + VAT_RATE);
-  return (order.collections || [])
+  const collectedFromLines = (order.collections || [])
     .filter((collection) => collection.status === "approved")
     .reduce((sum, collection) => {
       if (Number.isFinite(collection.amountWithoutVat)) return sum + collection.amountWithoutVat;
@@ -355,6 +355,10 @@ function getOrderCollectedAmount(order) {
         return lineSum + Number(line?.unitCost || 0) * Number(collectedLine.quantity || 0);
       }, 0);
     }, 0);
+  if (collectedFromLines > 0) return collectedFromLines;
+  if (Number.isFinite(order.paidWithoutVatTotal)) return order.paidWithoutVatTotal;
+  if (Number.isFinite(order.paidWithVatTotal)) return order.paidWithVatTotal / (1 + VAT_RATE);
+  return 0;
 }
 
 function money(amount) {
