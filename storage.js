@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 let db;
@@ -7,10 +7,16 @@ let paths;
 let normalize;
 let seed;
 let usingSqlite = false;
+let lastBackupMs = 0;
+const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_BACKUPS = 80;
 let storageStatus = {
   mode: "uninitialized",
   dbFile: "",
   jsonFile: "",
+  backupDir: "",
+  lastBackupFile: "",
+  lastBackupAt: "",
   error: ""
 };
 
@@ -18,12 +24,14 @@ export async function initializeStorage({ dataDir, dbFile, normalizeData, seedDa
   paths = {
     dataDir,
     dbFile: dbFile || path.join(dataDir, "budget.sqlite"),
-    jsonFile: path.join(dataDir, "app-data.json")
+    jsonFile: path.join(dataDir, "app-data.json"),
+    backupDir: path.join(dataDir, "backups")
   };
   normalize = normalizeData;
   seed = seedData;
 
   await mkdir(dataDir, { recursive: true });
+  await mkdir(paths.backupDir, { recursive: true });
   try {
     await mkdir(path.dirname(paths.dbFile), { recursive: true });
     db = new Database(paths.dbFile);
@@ -36,6 +44,9 @@ export async function initializeStorage({ dataDir, dbFile, normalizeData, seedDa
       mode: "sqlite",
       dbFile: paths.dbFile,
       jsonFile: paths.jsonFile,
+      backupDir: paths.backupDir,
+      lastBackupFile: storageStatus.lastBackupFile || "",
+      lastBackupAt: storageStatus.lastBackupAt || "",
       error: ""
     };
     if (!hasState) {
@@ -52,6 +63,9 @@ export async function initializeStorage({ dataDir, dbFile, normalizeData, seedDa
       mode: "json-fallback",
       dbFile: paths.dbFile,
       jsonFile: paths.jsonFile,
+      backupDir: paths.backupDir,
+      lastBackupFile: storageStatus.lastBackupFile || "",
+      lastBackupAt: storageStatus.lastBackupAt || "",
       error: error.message
     };
     console.warn(`SQLite storage is unavailable, falling back to JSON: ${error.message}`);
@@ -61,6 +75,49 @@ export async function initializeStorage({ dataDir, dbFile, normalizeData, seedDa
 
 export function getStorageStatus() {
   return { ...storageStatus };
+}
+
+export async function listBackups() {
+  await mkdir(paths.backupDir, { recursive: true });
+  const files = await readdir(paths.backupDir);
+  const rows = await Promise.all(files
+    .filter((file) => /^app-data-\d{8}-\d{6}-(?:auto|manual)\.json$/.test(file))
+    .map(async (file) => {
+      const filePath = path.join(paths.backupDir, file);
+      const stats = await stat(filePath);
+      return {
+        file,
+        filePath,
+        size: stats.size,
+        createdAt: stats.mtime.toISOString()
+      };
+    }));
+  return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function createDataBackup(data, reason = "manual", options = {}) {
+  const nowMs = Date.now();
+  if (options.throttle && nowMs - lastBackupMs < AUTO_BACKUP_INTERVAL_MS) {
+    return {
+      skipped: true,
+      reason: "throttled",
+      lastBackupFile: storageStatus.lastBackupFile,
+      lastBackupAt: storageStatus.lastBackupAt
+    };
+  }
+
+  await mkdir(paths.backupDir, { recursive: true });
+  const safeReason = reason === "auto" ? "auto" : "manual";
+  const iso = new Date().toISOString();
+  const timestamp = `${iso.slice(0, 10).replace(/-/g, "")}-${iso.slice(11, 19).replace(/:/g, "")}`;
+  const file = `app-data-${timestamp}-${safeReason}.json`;
+  const filePath = path.join(paths.backupDir, file);
+  await writeFile(filePath, JSON.stringify(normalize(data), null, 2), "utf8");
+  lastBackupMs = nowMs;
+  storageStatus.lastBackupFile = filePath;
+  storageStatus.lastBackupAt = new Date(nowMs).toISOString();
+  await pruneBackups();
+  return { skipped: false, file, filePath, createdAt: storageStatus.lastBackupAt };
 }
 
 export async function readData() {
@@ -79,6 +136,7 @@ export async function saveData(data) {
   const normalized = normalize(data);
   if (!usingSqlite) {
     await writeFile(paths.jsonFile, JSON.stringify(normalized, null, 2), "utf8");
+    await createDataBackup(normalized, "auto", { throttle: true });
     return;
   }
 
@@ -104,15 +162,26 @@ export async function saveData(data) {
         mode: "json-fallback",
         dbFile: paths.dbFile,
         jsonFile: paths.jsonFile,
+        backupDir: paths.backupDir,
+        lastBackupFile: storageStatus.lastBackupFile || "",
+        lastBackupAt: storageStatus.lastBackupAt || "",
         error: error.message
       };
       await writeFile(paths.jsonFile, JSON.stringify(normalized, null, 2), "utf8");
+      await createDataBackup(normalized, "auto", { throttle: true });
       return;
     }
     throw error;
   }
 
   await writeFile(paths.jsonFile, JSON.stringify(normalized, null, 2), "utf8").catch(() => {});
+  await createDataBackup(normalized, "auto", { throttle: true }).catch(() => {});
+}
+
+async function pruneBackups() {
+  const backups = await listBackups();
+  const stale = backups.slice(MAX_BACKUPS);
+  await Promise.all(stale.map((backup) => unlink(backup.filePath).catch(() => {})));
 }
 
 function isReadonlyDatabaseError(error) {

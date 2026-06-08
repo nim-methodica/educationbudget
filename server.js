@@ -6,7 +6,7 @@ import { inflateRawSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getStorageStatus, initializeStorage, readData, saveData } from "./storage.js";
+import { createDataBackup, getStorageStatus, initializeStorage, listBackups, readData, saveData } from "./storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(globalThis.process?.env?.PORT || 4173);
@@ -1543,7 +1543,21 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/storage") {
-    return json(res, getStorageStatus());
+    const backups = await listBackups().catch(() => []);
+    return json(res, {
+      ...getStorageStatus(),
+      backupCount: backups.length,
+      latestBackup: backups[0] || null
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/backups") {
+    return json(res, { backups: await listBackups() });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/backups") {
+    const backup = await createDataBackup(data, "manual");
+    return json(res, { ok: true, backup });
   }
 
   if (req.method === "PATCH" && parts[1] === "frameworks" && parts[3] === "default") {
