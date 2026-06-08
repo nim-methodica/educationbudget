@@ -6,6 +6,7 @@ let activeSideTab = "alerts";
 let selectedCollectionCaseId = null;
 let showClosedOrders = false;
 let pendingOrderDraft = null;
+let pendingOrderRegulationNumber = "";
 let orderExtractionSucceeded = false;
 let orderIntakeRegulationId = null;
 let activeReservationDraftId = null;
@@ -13,6 +14,8 @@ const regulationDetails = new Map();
 const expandedProjectIds = new Set();
 const expandedAlertRegulationIds = new Set();
 let collectionDocumentNotice = null;
+let frameworkUpdateDraft = null;
+let cumulativeExecutionDraft = null;
 
 const els = {
   frameworkSelect: document.querySelector("#frameworkSelect"),
@@ -24,6 +27,16 @@ const els = {
   budgetControlDialog: document.querySelector("#budgetControlDialog"),
   budgetControlTitle: document.querySelector("#budgetControlTitle"),
   budgetControlContent: document.querySelector("#budgetControlContent"),
+  frameworkUpdateBtn: document.querySelector("#frameworkUpdateBtn"),
+  frameworkUpdateDialog: document.querySelector("#frameworkUpdateDialog"),
+  frameworkUpdateFileInput: document.querySelector("#frameworkUpdateFileInput"),
+  frameworkUpdateStatus: document.querySelector("#frameworkUpdateStatus"),
+  frameworkUpdatePreview: document.querySelector("#frameworkUpdatePreview"),
+  cumulativeExecutionBtn: document.querySelector("#cumulativeExecutionBtn"),
+  cumulativeExecutionDialog: document.querySelector("#cumulativeExecutionDialog"),
+  cumulativeExecutionFileInput: document.querySelector("#cumulativeExecutionFileInput"),
+  cumulativeExecutionStatus: document.querySelector("#cumulativeExecutionStatus"),
+  cumulativeExecutionPreview: document.querySelector("#cumulativeExecutionPreview"),
   reserveSimulationBtn: document.querySelector("#reserveSimulationBtn"),
   reserveSimulationDialog: document.querySelector("#reserveSimulationDialog"),
   reserveSimulationContent: document.querySelector("#reserveSimulationContent"),
@@ -326,13 +339,16 @@ function summarizeRegulationLocally(regulation) {
   const frameworkAmount = regulation.summary?.framework?.withoutVat || regulation.items.reduce((sum, item) => sum + item.unitCost * item.approvedQuantity, 0);
   const reserved = regulation.projectOrders.reduce((sum, order) => sum + getOrderReservedAmount(order), 0);
   const collected = regulation.projectOrders.reduce((sum, order) => sum + getOrderCollectedAmount(order), 0);
+  const cumulativeExecution = regulation.summary?.cumulativeExecution?.withoutVat ?? Number(regulation.cumulativeExecution?.withoutVat || 0);
   return {
     ...regulation.summary,
     framework: money(frameworkAmount),
     reserved: money(reserved),
     collected: money(collected),
+    cumulativeExecution: money(cumulativeExecution),
     unreserved: money(frameworkAmount - reserved),
-    remainingToCollect: money(frameworkAmount - collected),
+    remainingToCollect: money(frameworkAmount - cumulativeExecution),
+    orderExecutionGap: money(reserved - cumulativeExecution),
     unpaidOrders: money(reserved - collected),
     activeProjects: regulation.projectOrders.filter((order) => order.status !== "closed").length,
     orderCount: regulation.projectOrders.length
@@ -449,7 +465,38 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     if (event.target.closest("#frameworkItemsBtn")) openFrameworkItemsDialog();
   });
+  els.frameworkItemsContent.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-breakdown-target]");
+    if (!button) return;
+    const row = document.getElementById(button.dataset.breakdownTarget);
+    if (!row) return;
+    row.hidden = !row.hidden;
+    button.setAttribute("aria-expanded", String(!row.hidden));
+  });
+  els.frameworkItemsContent.addEventListener("change", (event) => {
+    if (!event.target.matches("#frameworkExceptionsOnly")) return;
+    els.frameworkItemsContent.classList.toggle("show-framework-exceptions-only", event.target.checked);
+  });
+  els.frameworkItemsContent.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-verify-exception]");
+    if (!button) return;
+    toggleFrameworkExceptionVerification(button.dataset.frameworkId, button.dataset.exceptionKey);
+    openFrameworkItemsDialog();
+  });
   els.budgetControlBtn.addEventListener("click", () => openBudgetControlDialog());
+  els.frameworkUpdateBtn.addEventListener("click", () => openFrameworkUpdateDialog());
+  els.frameworkUpdateFileInput.addEventListener("change", () => extractFrameworkUpdateFromSelectedFile());
+  els.frameworkUpdatePreview.addEventListener("input", (event) => {
+    if (event.target.matches(".framework-change-input")) updateFrameworkPreviewRow(event.target);
+  });
+  els.frameworkUpdatePreview.addEventListener("click", (event) => {
+    if (event.target.closest("#applyFrameworkUpdateBtn")) applyFrameworkUpdateDraft();
+  });
+  els.cumulativeExecutionBtn.addEventListener("click", () => openCumulativeExecutionDialog());
+  els.cumulativeExecutionFileInput.addEventListener("change", () => extractCumulativeExecutionFromSelectedFile());
+  els.cumulativeExecutionPreview.addEventListener("click", (event) => {
+    if (event.target.closest("#applyCumulativeExecutionBtn")) applyCumulativeExecutionDraft();
+  });
   els.reserveSimulationBtn.addEventListener("click", () => openReserveSimulationDialog());
   window.addEventListener("hashchange", () => {
     if (window.location.hash === "#framework-items") openFrameworkItemsDialog();
@@ -607,7 +654,7 @@ function bindEvents() {
       { code: "33.1", quantity: 17, unitCost: 13000 },
       { code: "40", quantity: 26, unitCost: 220 },
       { code: "41", quantity: 25, unitCost: 330 },
-      { code: "44", quantity: 117, unitCost: 138 }
+      { code: "44", quantity: 117, unitCost: 137.5 }
     ]);
     orderExtractionSucceeded = true;
     els.reviewOrderBtn.disabled = false;
@@ -681,20 +728,21 @@ function renderUsersDialog() {
 }
 function renderFrameworkSummary(framework) {
   const totals = framework.regulations.reduce((acc, regulation) => {
-    for (const key of ["framework", "reserved", "collected", "unpaidOrders", "unreserved", "remainingToCollect"]) {
-      acc[key] += regulation.summary[key].withoutVat;
+    const summary = regulation.summary || summarizeRegulationLocally(regulation);
+    for (const key of ["framework", "reserved", "collected", "cumulativeExecution", "unpaidOrders", "unreserved", "remainingToCollect", "orderExecutionGap"]) {
+      acc[key] += summary[key]?.withoutVat || 0;
     }
     acc.orderCount += getRegulationOrderCount(regulation);
     return acc;
-  }, { framework: 0, reserved: 0, collected: 0, unpaidOrders: 0, unreserved: 0, remainingToCollect: 0, orderCount: 0 });
+  }, { framework: 0, reserved: 0, collected: 0, cumulativeExecution: 0, unpaidOrders: 0, unreserved: 0, remainingToCollect: 0, orderExecutionGap: 0, orderCount: 0 });
 
   els.frameworkSummary.innerHTML = [
     metric("תקציב מסגרת", totals.framework),
-    metric("ניצול / הזמנות", totals.reserved),
-    metric("שולם", totals.collected),
-    metric("לתשלום בהזמנות קיימות", totals.unpaidOrders),
+    metric("שריון בהזמנות", totals.reserved),
+    metric("ביצוע מצטבר", totals.cumulativeExecution),
+    metric("פער הזמנות מול ביצוע", totals.orderExecutionGap),
     metric("לא שוריין", totals.unreserved),
-    metric("יתרה כוללת לגבייה", totals.remainingToCollect)
+    metric("יתרה מול מסגרת", totals.remainingToCollect)
   ].join("");
 }
 
@@ -721,6 +769,306 @@ function openBudgetControlDialog() {
   if (!els.budgetControlDialog.open) els.budgetControlDialog.showModal();
 }
 
+function openFrameworkUpdateDialog() {
+  selectedFrameworkId = els.frameworkSelect.value;
+  frameworkUpdateDraft = null;
+  els.frameworkUpdateFileInput.value = "";
+  els.frameworkUpdateStatus.className = "extraction-status";
+  els.frameworkUpdateStatus.textContent = "בחר קובץ כדי לראות אילו תקנות ופריטים השתנו.";
+  els.frameworkUpdatePreview.innerHTML = "";
+  els.frameworkUpdateDialog.showModal();
+}
+
+async function extractFrameworkUpdateFromSelectedFile() {
+  const file = els.frameworkUpdateFileInput.files?.[0];
+  if (!file) return;
+  els.frameworkUpdateStatus.className = "extraction-status working";
+  els.frameworkUpdateStatus.textContent = "קורא את הקובץ ובודק שינויים מול הזמנת המסגרת הפעילה...";
+  els.frameworkUpdatePreview.innerHTML = "";
+  try {
+    const result = await api("/api/extract-framework-update", {
+      method: "POST",
+      body: {
+        frameworkId: selectedFrameworkId,
+        fileName: file.name,
+        dataUrl: await readFileAsDataUrl(file)
+      }
+    });
+    els.frameworkUpdateStatus.className = "extraction-status ok";
+    const sourceNote = result.sourceType === "change-plan" ? "נקראו חוצצי התקנות הנפרדים" : `נקרא החוצץ ${result.sheetName}`;
+    els.frameworkUpdateStatus.textContent = `${sourceNote}. זו בדיקה בלבד, ללא עדכון נתונים.`;
+    frameworkUpdateDraft = result;
+    els.frameworkUpdatePreview.innerHTML = renderFrameworkUpdatePreview(result);
+  } catch (error) {
+    els.frameworkUpdateStatus.className = "extraction-status error";
+    els.frameworkUpdateStatus.textContent = error.message || "לא הצלחתי לקרוא את עדכון המסגרת.";
+  }
+}
+
+function renderFrameworkUpdatePreview(result) {
+  const regulationRows = (result.changes?.regulationChanges || []).map((row) => `
+    <tr>
+      <td>${escapeHtml(row.number)}</td>
+      <td>${formatCurrency(row.currentWithoutVat)}</td>
+      <td>${formatCurrency(row.extractedWithoutVat)}</td>
+      <td>${formatCurrency(row.deltaWithoutVat)}</td>
+      <td>${formatCurrency(row.currentWithVat)}</td>
+      <td>${formatCurrency(row.extractedWithVat)}</td>
+    </tr>
+  `).join("");
+  const itemChanges = result.changes?.itemChanges || [];
+  const changed = itemChanges.filter((row) => row.status === "changed").length;
+  const added = itemChanges.filter((row) => row.status === "new").length;
+  const removed = itemChanges.filter((row) => row.status === "removed").length;
+  const unchanged = itemChanges.filter((row) => row.status === "unchanged").length;
+  const visibleItemRows = itemChanges
+    .slice()
+    .sort((a, b) => Number(a.regulationNumber) - Number(b.regulationNumber) || compareItemCodes(a.code, b.code))
+    .map((row) => {
+      const beforeQuantity = Number(row.fileQuantityBeforeChange ?? row.currentQuantity ?? 0);
+      const changeQuantity = Number(row.fileQuantityChange ?? row.quantityDelta ?? 0);
+      const afterQuantity = Number(row.extractedQuantity ?? (beforeQuantity + changeQuantity));
+      const unitCost = Number(row.extractedUnitCost || row.currentUnitCost || 0);
+      return `
+    <tr data-regulation="${escapeHtml(row.regulationNumber)}" data-code="${escapeHtml(row.code)}" data-name="${escapeHtml(row.extractedName || row.currentName)}" data-before="${beforeQuantity}" data-unit-cost="${unitCost}">
+      <td>${escapeHtml(row.regulationNumber)}</td>
+      <td><strong>${escapeHtml(row.code)}</strong></td>
+      <td>${escapeHtml(row.extractedName || row.currentName)}</td>
+      <td>${frameworkUpdateStatusLabel(row.status)}</td>
+      <td class="before-quantity-cell">${formatNumber(beforeQuantity)}</td>
+      <td><input class="framework-change-input" type="number" step="0.001" value="${escapeHtml(changeQuantity)}" /></td>
+      <td class="after-quantity-cell" data-value="${afterQuantity}">${formatNumber(afterQuantity)}</td>
+      <td class="unit-cost-cell" data-value="${unitCost}">${formatCurrencyPrecise(unitCost)}</td>
+      <td class="after-amount-cell" data-value="${afterQuantity * unitCost}">${formatCurrencyPrecise(afterQuantity * unitCost)}</td>
+    </tr>
+  `;
+    }).join("");
+  const cumulativeText = (result.cumulative || []).length
+    ? `זוהו ${(result.cumulative || []).length} אזורי דוח ביצוע מצטבר.`
+    : "לא זוהה אזור דוח ביצוע מצטבר.";
+
+  return `
+    <section class="update-preview">
+      <div class="card-metrics compact-metrics">
+        <div class="mini-metric"><span>שינויי פריטים</span><strong>${itemChanges.length}</strong></div>
+        <div class="mini-metric"><span>עודכנו</span><strong>${changed}</strong></div>
+        <div class="mini-metric"><span>נוספו</span><strong>${added}</strong></div>
+        <div class="mini-metric"><span>הוסרו</span><strong>${removed}</strong></div>
+        <div class="mini-metric"><span>ללא שינוי</span><strong>${unchanged}</strong></div>
+      </div>
+      <p class="muted">${escapeHtml(cumulativeText)}</p>
+      <h3>סכומי תקנות</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>תקנה</th>
+              <th>נוכחי ללא מע״מ</th>
+              <th>בקובץ ללא מע״מ</th>
+              <th>פער ללא מע״מ</th>
+              <th>נוכחי כולל מע״מ</th>
+              <th>בקובץ כולל מע״מ</th>
+            </tr>
+          </thead>
+          <tbody>${regulationRows}</tbody>
+        </table>
+      </div>
+      <h3>שינויי פריטים</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>תקנה</th>
+              <th>סעיף</th>
+              <th>שם פריט</th>
+              <th>מצב</th>
+              <th>כמות לפני שינוי</th>
+              <th>שינוי</th>
+              <th>כמות אחרי עדכון</th>
+              <th>עלות ללא מע״מ</th>
+              <th>סך עלות אחרי עדכון</th>
+            </tr>
+          </thead>
+          <tbody>${visibleItemRows || `<tr><td colspan="9" class="muted">לא נמצאו שינויי פריטים.</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="dialog-actions">
+        <button id="applyFrameworkUpdateBtn" type="button" ${itemChanges.length ? "" : "disabled"}>עדכן פריטים</button>
+      </div>
+    </section>
+  `;
+}
+
+function compareItemCodes(a, b) {
+  const left = String(a || "").split(".").map(Number);
+  const right = String(b || "").split(".").map(Number);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (left[index] || 0) - (right[index] || 0);
+    if (delta !== 0) return delta;
+  }
+  return String(a || "").localeCompare(String(b || ""), "he");
+}
+
+function updateFrameworkPreviewRow(input) {
+  const row = input.closest("tr");
+  if (!row) return;
+  const beforeQuantity = Number(row.dataset.before || 0);
+  const changeQuantity = Number(input.value || 0);
+  const unitCost = Number(row.dataset.unitCost || 0);
+  const afterQuantity = beforeQuantity + changeQuantity;
+  const afterAmount = afterQuantity * unitCost;
+  const quantityCell = row.querySelector(".after-quantity-cell");
+  const amountCell = row.querySelector(".after-amount-cell");
+  if (quantityCell) {
+    quantityCell.dataset.value = String(afterQuantity);
+    quantityCell.textContent = formatNumber(afterQuantity);
+  }
+  if (amountCell) {
+    amountCell.dataset.value = String(afterAmount);
+    amountCell.textContent = formatCurrencyPrecise(afterAmount);
+  }
+}
+
+async function applyFrameworkUpdateDraft() {
+  const rows = [...els.frameworkUpdatePreview.querySelectorAll("tbody tr[data-regulation]")].map((row) => ({
+    regulationNumber: row.dataset.regulation,
+    code: row.dataset.code,
+    name: row.dataset.name,
+    unitCost: Number(row.dataset.unitCost || 0),
+    approvedQuantity: Number(row.querySelector(".after-quantity-cell")?.dataset.value || 0)
+  }));
+  if (!rows.length) return;
+  els.frameworkUpdateStatus.className = "extraction-status working";
+  els.frameworkUpdateStatus.textContent = "מעדכן את פריטי המסגרת לפי הטבלה שאישרת...";
+  try {
+    await api("/api/apply-framework-update", {
+      method: "POST",
+      body: {
+        frameworkId: selectedFrameworkId,
+        sourceFileName: frameworkUpdateDraft?.fileName || "",
+        rows
+      }
+    });
+    await loadState();
+    render();
+    els.frameworkUpdateStatus.className = "extraction-status ok";
+    els.frameworkUpdateStatus.textContent = "פריטי המסגרת עודכנו. הניצול והגביה לא שונו.";
+  } catch (error) {
+    els.frameworkUpdateStatus.className = "extraction-status error";
+    els.frameworkUpdateStatus.textContent = error.message || "לא הצלחתי לעדכן את פריטי המסגרת.";
+  }
+}
+
+function openCumulativeExecutionDialog() {
+  selectedFrameworkId = els.frameworkSelect.value;
+  cumulativeExecutionDraft = null;
+  els.cumulativeExecutionFileInput.value = "";
+  els.cumulativeExecutionStatus.className = "extraction-status";
+  els.cumulativeExecutionStatus.textContent = "בחר קובץ כדי לראות ביצוע מצטבר לפי תקנות.";
+  els.cumulativeExecutionPreview.innerHTML = "";
+  els.cumulativeExecutionDialog.showModal();
+}
+
+async function extractCumulativeExecutionFromSelectedFile() {
+  const file = els.cumulativeExecutionFileInput.files?.[0];
+  if (!file) return;
+  els.cumulativeExecutionStatus.className = "extraction-status working";
+  els.cumulativeExecutionStatus.textContent = "קורא את דוח הביצוע המצטבר...";
+  els.cumulativeExecutionPreview.innerHTML = "";
+  try {
+    const result = await api("/api/extract-cumulative-execution", {
+      method: "POST",
+      body: {
+        frameworkId: selectedFrameworkId,
+        fileName: file.name,
+        dataUrl: await readFileAsDataUrl(file)
+      }
+    });
+    cumulativeExecutionDraft = result;
+    els.cumulativeExecutionStatus.className = "extraction-status ok";
+    els.cumulativeExecutionStatus.textContent = `הקובץ נקרא מתוך ${result.sheetName}. זו בדיקה בלבד עד לאישור.`;
+    els.cumulativeExecutionPreview.innerHTML = renderCumulativeExecutionPreview(result);
+  } catch (error) {
+    els.cumulativeExecutionStatus.className = "extraction-status error";
+    els.cumulativeExecutionStatus.textContent = error.message || "לא הצלחתי לקרוא ביצוע מצטבר.";
+  }
+}
+
+function renderCumulativeExecutionPreview(result) {
+  const rows = result.changes || [];
+  const tableRows = rows.map((row) => `
+    <tr data-regulation="${escapeHtml(row.number)}" data-quantity="${Number(row.quantity || 0)}" data-without-vat="${Number(row.extractedWithoutVat || 0)}">
+      <td>${escapeHtml(row.number)}</td>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${formatNumber(row.quantity)}</td>
+      <td>${formatCurrency(row.currentWithoutVat)}</td>
+      <td>${formatCurrency(row.extractedWithoutVat)}</td>
+      <td>${formatCurrency(row.deltaWithoutVat)}</td>
+      <td>${formatCurrency(row.extractedWithVat)}</td>
+    </tr>
+  `).join("");
+  return `
+    <section class="update-preview">
+      <h3>ביצוע מצטבר לפי תקנות</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>תקנה</th>
+              <th>שם תקנה</th>
+              <th>כמות</th>
+              <th>קיים ללא מע״מ</th>
+              <th>בקובץ ללא מע״מ</th>
+              <th>פער ללא מע״מ</th>
+              <th>בקובץ כולל מע״מ</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+      <div class="dialog-actions">
+        <button id="applyCumulativeExecutionBtn" type="button" ${rows.length ? "" : "disabled"}>עדכן ביצוע מצטבר</button>
+      </div>
+    </section>
+  `;
+}
+
+async function applyCumulativeExecutionDraft() {
+  const rows = [...els.cumulativeExecutionPreview.querySelectorAll("tbody tr[data-regulation]")].map((row) => ({
+    number: row.dataset.regulation,
+    quantity: Number(row.dataset.quantity || 0),
+    withoutVat: Number(row.dataset.withoutVat || 0)
+  }));
+  if (!rows.length) return;
+  els.cumulativeExecutionStatus.className = "extraction-status working";
+  els.cumulativeExecutionStatus.textContent = "מעדכן ביצוע מצטבר...";
+  try {
+    await api("/api/apply-cumulative-execution", {
+      method: "POST",
+      body: {
+        frameworkId: selectedFrameworkId,
+        sourceFileName: cumulativeExecutionDraft?.fileName || "",
+        rows
+      }
+    });
+    await loadState();
+    render();
+    els.cumulativeExecutionStatus.className = "extraction-status ok";
+    els.cumulativeExecutionStatus.textContent = "ביצוע מצטבר עודכן. הזמנות וגביות לא שונו.";
+  } catch (error) {
+    els.cumulativeExecutionStatus.className = "extraction-status error";
+    els.cumulativeExecutionStatus.textContent = error.message || "לא הצלחתי לעדכן ביצוע מצטבר.";
+  }
+}
+
+function frameworkUpdateStatusLabel(status) {
+  if (status === "new") return "חדש";
+  if (status === "removed") return "לא נמצא בקובץ";
+  if (status === "unchanged") return "ללא שינוי";
+  return "עודכן";
+}
+
 function buildBudgetControlRows(framework) {
   return getOrderedRegulations(framework.regulations)
     .map((regulation) => {
@@ -732,9 +1080,11 @@ function buildBudgetControlRows(framework) {
         framework: summary.framework.withoutVat,
         reserved: summary.reserved.withoutVat,
         collected: summary.collected.withoutVat,
+        cumulativeExecution: summary.cumulativeExecution?.withoutVat || 0,
         unpaidOrders: summary.unpaidOrders.withoutVat,
         unreserved: summary.unreserved.withoutVat,
         remainingToCollect: summary.remainingToCollect.withoutVat,
+        orderExecutionGap: summary.orderExecutionGap?.withoutVat || 0,
         activeProjects: summary.activeProjects || 0,
         closedProjects: (regulation.projectOrders || []).filter((order) => order.status === "closed").length,
         orderCount: summary.orderCount || 0
@@ -754,11 +1104,11 @@ function getOrderedRegulations(regulations) {
 function renderBudgetControlReport(framework) {
   const rows = buildBudgetControlRows(framework);
   const totals = rows.reduce((acc, row) => {
-    ["framework", "reserved", "collected", "unpaidOrders", "unreserved", "remainingToCollect", "activeProjects", "closedProjects", "orderCount"].forEach((key) => {
+    ["framework", "reserved", "collected", "cumulativeExecution", "unpaidOrders", "unreserved", "remainingToCollect", "orderExecutionGap", "activeProjects", "closedProjects", "orderCount"].forEach((key) => {
       acc[key] += Number(row[key] || 0);
     });
     return acc;
-  }, { framework: 0, reserved: 0, collected: 0, unpaidOrders: 0, unreserved: 0, remainingToCollect: 0, activeProjects: 0, closedProjects: 0, orderCount: 0 });
+  }, { framework: 0, reserved: 0, collected: 0, cumulativeExecution: 0, unpaidOrders: 0, unreserved: 0, remainingToCollect: 0, orderExecutionGap: 0, activeProjects: 0, closedProjects: 0, orderCount: 0 });
 
   const tableRows = [
     ...rows.map((row) => renderBudgetControlRow(row)),
@@ -777,10 +1127,12 @@ function renderBudgetControlReport(framework) {
             <th>שם תקנה</th>
             <th>תקציב מסגרת<br><small>ללא מע״מ</small></th>
             <th>תקציב מסגרת<br><small>כולל מע״מ</small></th>
-            <th>ניצול / הזמנות<br><small>ללא מע״מ</small></th>
-            <th>ניצול / הזמנות<br><small>כולל מע״מ</small></th>
-            <th>שולם<br><small>ללא מע״מ</small></th>
-            <th>שולם<br><small>כולל מע״מ</small></th>
+            <th>שריון בהזמנות<br><small>ללא מע״מ</small></th>
+            <th>שריון בהזמנות<br><small>כולל מע״מ</small></th>
+            <th>ביצוע מצטבר<br><small>ללא מע״מ</small></th>
+            <th>ביצוע מצטבר<br><small>כולל מע״מ</small></th>
+            <th>פער הזמנות מול ביצוע<br><small>ללא מע״מ</small></th>
+            <th>פער הזמנות מול ביצוע<br><small>כולל מע״מ</small></th>
             <th>לתשלום בהזמנות קיימות<br><small>ללא מע״מ</small></th>
             <th>לתשלום בהזמנות קיימות<br><small>כולל מע״מ</small></th>
             <th>לא שוריין<br><small>ללא מע״מ</small></th>
@@ -808,8 +1160,10 @@ function renderBudgetControlRow(row, isTotal = false) {
       <td>${formatCurrency(withVat(row.framework))}</td>
       <td>${formatCurrency(row.reserved)}</td>
       <td>${formatCurrency(withVat(row.reserved))}</td>
-      <td>${formatCurrency(row.collected)}</td>
-      <td>${formatCurrency(withVat(row.collected))}</td>
+      <td>${formatCurrency(row.cumulativeExecution)}</td>
+      <td>${formatCurrency(withVat(row.cumulativeExecution))}</td>
+      <td>${formatCurrency(row.orderExecutionGap)}</td>
+      <td>${formatCurrency(withVat(row.orderExecutionGap))}</td>
       <td>${formatCurrency(row.unpaidOrders)}</td>
       <td>${formatCurrency(withVat(row.unpaidOrders))}</td>
       <td>${formatCurrency(row.unreserved)}</td>
@@ -1119,7 +1473,14 @@ function renderFrameworkItemsReport(framework) {
     return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
   });
 
-  return orderedRegulations.map((regulation) => {
+  return `
+    <div class="framework-items-toolbar">
+      <label class="toggle-line">
+        <input id="frameworkExceptionsOnly" type="checkbox" />
+        <span>הצג חריגות בלבד</span>
+      </label>
+    </div>
+    ${orderedRegulations.map((regulation) => {
     const rows = buildFrameworkItemRows(regulation);
     return `
       <section class="framework-items-section">
@@ -1139,34 +1500,55 @@ function renderFrameworkItemsReport(framework) {
                 <th>עלות ללא מע״מ</th>
                 <th>כמות בהסכם</th>
                 <th>נוצל בהזמנות</th>
-                <th>שולם</th>
+                <th>נוצל</th>
                 <th>יתרה לניצול</th>
                 <th>סכום מסגרת</th>
                 <th>סכום ניצול</th>
                 <th>סכום יתרה</th>
+                <th>מצב</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.length ? rows.map((row) => `
-                <tr class="${row.missingFromFramework ? "missing-row" : ""}">
+              ${rows.length ? rows.map((row) => {
+                const breakdownId = `breakdown-${regulation.id}-${String(row.code).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+                const exceptionKey = `${regulation.number}:${row.code}`;
+                const isVerifiedException = row.isException && isFrameworkExceptionVerified(framework.id, exceptionKey);
+                return `
+                <tr class="${row.missingFromFramework ? "missing-row" : ""} ${row.isException ? "exception-row" : ""} ${isVerifiedException ? "verified-exception-row" : ""}">
                   <td><strong>${escapeHtml(row.code)}</strong></td>
                   <td>${escapeHtml(row.name)}</td>
                   <td>${formatCurrency(row.unitCost)}</td>
                   <td>${formatNumber(row.approvedQuantity)}</td>
-                  <td>${formatNumber(row.reservedQuantity)}</td>
+                  <td>
+                    ${row.orderBreakdown.length ? `
+                      <button class="table-link-button" type="button" data-breakdown-target="${breakdownId}" aria-expanded="false">
+                        ${formatNumber(row.reservedQuantity)}
+                      </button>
+                    ` : formatNumber(row.reservedQuantity)}
+                  </td>
                   <td>${formatNumber(row.collectedQuantity)}</td>
                   <td>${formatNumber(row.remainingQuantity)}</td>
                   <td>${formatCurrency(row.approvedAmount)}</td>
                   <td>${formatCurrency(row.reservedAmount)}</td>
                   <td>${formatCurrency(row.remainingAmount)}</td>
+                  <td>${renderFrameworkItemStatus(row, framework.id, exceptionKey, isVerifiedException)}</td>
                 </tr>
-              `).join("") : `<tr><td colspan="10" class="muted">אין פריטים במסגרת התקנה הזו.</td></tr>`}
+                ${row.orderBreakdown.length ? `
+                  <tr id="${breakdownId}" class="framework-breakdown-row ${row.isException ? "exception-row" : ""} ${isVerifiedException ? "verified-exception-row" : ""}" hidden>
+                    <td colspan="11">
+                      ${renderFrameworkItemBreakdown(row)}
+                    </td>
+                  </tr>
+                ` : ""}
+              `;
+              }).join("") : `<tr><td colspan="11" class="muted">אין פריטים במסגרת התקנה הזו.</td></tr>`}
             </tbody>
           </table>
         </div>
       </section>
     `;
-  }).join("");
+  }).join("")}
+  `;
 }
 
 function buildFrameworkItemRows(regulation) {
@@ -1177,6 +1559,7 @@ function buildFrameworkItemRows(regulation) {
     approvedQuantity: Number(item.approvedQuantity || 0),
     reservedQuantity: 0,
     collectedQuantity: 0,
+    orderBreakdown: [],
     missingFromFramework: false
   }]));
 
@@ -1190,26 +1573,151 @@ function buildFrameworkItemRows(regulation) {
           approvedQuantity: 0,
           reservedQuantity: 0,
           collectedQuantity: 0,
+          orderBreakdown: [],
           missingFromFramework: true
         });
       }
       const row = itemMap.get(line.code);
-      row.reservedQuantity += Number(line.quantity || 0);
-      row.collectedQuantity += Number(line.collectedQuantity ?? getCollectedQuantityForOrderLine(order, line.code));
+      const quantity = Number(line.quantity || 0);
+      const unitCost = Number(line.unitCost || 0);
+      const paidQuantity = getPaidQuantityForOrderLine(order, line);
+      row.reservedQuantity += quantity;
+      row.collectedQuantity += paidQuantity;
       if (!row.unitCost) row.unitCost = Number(line.unitCost || 0);
+      if (quantity) {
+        row.orderBreakdown.push({
+          orderNumber: order.orderNumber || "-",
+          projectName: order.projectName || order.title || "-",
+          status: order.status || "active",
+          quantity,
+          paidQuantity,
+          unitCost,
+          amount: quantity * unitCost
+        });
+      }
     });
   });
 
   return [...itemMap.values()].map((row) => {
     const remainingQuantity = row.approvedQuantity - row.reservedQuantity;
+    const isMissingFromUpdatedFramework = row.missingFromFramework && row.reservedQuantity > 0;
+    const isOverReserved = remainingQuantity < 0;
     return {
       ...row,
       remainingQuantity,
+      isException: isMissingFromUpdatedFramework || isOverReserved,
+      isMissingFromUpdatedFramework,
+      isOverReserved,
       approvedAmount: row.approvedQuantity * row.unitCost,
       reservedAmount: row.reservedQuantity * row.unitCost,
       remainingAmount: remainingQuantity * row.unitCost
     };
   }).sort((a, b) => String(a.code).localeCompare(String(b.code), "he", { numeric: true }));
+}
+
+function renderFrameworkItemStatus(row, frameworkId, exceptionKey, isVerifiedException) {
+  if (isVerifiedException) {
+    return `
+      <span class="status-badge verified">חריגה מאומתת</span>
+      <button class="tiny-action" type="button" data-verify-exception data-framework-id="${escapeHtml(frameworkId)}" data-exception-key="${escapeHtml(exceptionKey)}">בטל אימות</button>
+    `;
+  }
+  if (row.isMissingFromUpdatedFramework) {
+    return `
+      <span class="status-badge danger">קיים בהזמנה, לא במסגרת</span>
+      <button class="tiny-action" type="button" data-verify-exception data-framework-id="${escapeHtml(frameworkId)}" data-exception-key="${escapeHtml(exceptionKey)}">סמן כמאומת</button>
+    `;
+  }
+  if (row.isOverReserved) {
+    return `
+      <span class="status-badge danger">חריגה מהמסגרת</span>
+      <button class="tiny-action" type="button" data-verify-exception data-framework-id="${escapeHtml(frameworkId)}" data-exception-key="${escapeHtml(exceptionKey)}">סמן כמאומת</button>
+    `;
+  }
+  if (row.reservedQuantity > 0) {
+    return `<span class="status-badge ok">בתוך המסגרת</span>`;
+  }
+  return `<span class="status-badge muted-badge">לא נוצל</span>`;
+}
+
+function frameworkExceptionStorageKey(frameworkId) {
+  return `framework-exception-verifications:${frameworkId}`;
+}
+
+function readFrameworkExceptionVerifications(frameworkId) {
+  try {
+    return JSON.parse(localStorage.getItem(frameworkExceptionStorageKey(frameworkId)) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function isFrameworkExceptionVerified(frameworkId, exceptionKey) {
+  return readFrameworkExceptionVerifications(frameworkId).includes(exceptionKey);
+}
+
+function toggleFrameworkExceptionVerification(frameworkId, exceptionKey) {
+  const current = new Set(readFrameworkExceptionVerifications(frameworkId));
+  if (current.has(exceptionKey)) current.delete(exceptionKey);
+  else current.add(exceptionKey);
+  localStorage.setItem(frameworkExceptionStorageKey(frameworkId), JSON.stringify([...current]));
+}
+
+function renderFrameworkItemBreakdown(row) {
+  const totalQuantity = row.orderBreakdown.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const totalPaidQuantity = row.orderBreakdown.reduce((sum, entry) => sum + Number(entry.paidQuantity || 0), 0);
+  const totalAmount = row.orderBreakdown.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  return `
+    <div class="framework-breakdown">
+      <div class="section-header compact-header">
+        <div>
+          <strong>${escapeHtml(row.code)} · ${escapeHtml(row.name)}</strong>
+          <p class="muted">פירוט ההזמנות שיוצרות את הניצול: ${formatNumber(totalQuantity)} יחידות, ${formatCurrency(totalAmount)} ללא מע״מ.</p>
+        </div>
+      </div>
+      <div class="table-wrap inner-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>הזמנה</th>
+              <th>שם פרויקט</th>
+              <th>סטטוס</th>
+              <th>כמות</th>
+              <th>נוצל</th>
+              <th>עלות ללא מע״מ</th>
+              <th>סכום</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${row.orderBreakdown.map((entry) => `
+              <tr>
+                <td><strong>${escapeHtml(entry.orderNumber)}</strong></td>
+                <td>${escapeHtml(entry.projectName)}</td>
+                <td>${escapeHtml(formatOrderStatus(entry.status))}</td>
+                <td>${formatNumber(entry.quantity)}</td>
+                <td>${formatNumber(entry.paidQuantity)}</td>
+                <td>${formatCurrency(entry.unitCost)}</td>
+                <td>${formatCurrency(entry.amount)}</td>
+              </tr>
+            `).join("")}
+            <tr class="total-row">
+              <td colspan="3"><strong>סה״כ</strong></td>
+              <td><strong>${formatNumber(totalQuantity)}</strong></td>
+              <td><strong>${formatNumber(totalPaidQuantity)}</strong></td>
+              <td></td>
+              <td><strong>${formatCurrency(totalAmount)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function formatOrderStatus(status) {
+  if (status === "closed") return "סגורה";
+  if (status === "draft") return "טיוטה";
+  return "פעילה";
 }
 
 function getCollectedQuantityForOrderLine(order, code) {
@@ -1218,6 +1726,15 @@ function getCollectedQuantityForOrderLine(order, code) {
     .flatMap((collection) => collection.lineCollections || [])
     .filter((line) => line.code === code)
     .reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+}
+
+function getPaidQuantityForOrderLine(order, line) {
+  const manualUtilizedQuantity = Number(line.utilizedQuantity);
+  if (Number.isFinite(manualUtilizedQuantity)) return manualUtilizedQuantity;
+  const manualCollectedQuantity = Number(line.collectedQuantity);
+  if (Number.isFinite(manualCollectedQuantity)) return manualCollectedQuantity;
+  if (order.status === "closed") return Number(line.quantity || 0);
+  return Number(getCollectedQuantityForOrderLine(order, line.code));
 }
 
 function renderRegulations(framework) {
@@ -1243,11 +1760,12 @@ function renderRegulations(framework) {
         </header>
         <div class="card-metrics">
           ${miniMetric("מסגרת", regulation.summary.framework.withoutVat, regulation.summary.framework.withVat)}
-          ${miniMetric("ניצול / הזמנות", regulation.summary.reserved.withoutVat, regulation.summary.reserved.withVat)}
-          ${miniMetric("שולם", regulation.summary.collected.withoutVat, regulation.summary.collected.withVat)}
+          ${miniMetric("שריון בהזמנות", regulation.summary.reserved.withoutVat, regulation.summary.reserved.withVat)}
+          ${miniMetric("ביצוע מצטבר", regulation.summary.cumulativeExecution?.withoutVat || 0, regulation.summary.cumulativeExecution?.withVat || 0)}
+          ${miniMetric("פער הזמנות מול ביצוע", regulation.summary.orderExecutionGap?.withoutVat || 0, regulation.summary.orderExecutionGap?.withVat || 0)}
           ${miniMetric("לתשלום בהזמנות קיימות", regulation.summary.unpaidOrders.withoutVat, regulation.summary.unpaidOrders.withVat)}
           ${miniMetric("לא שוריין", regulation.summary.unreserved.withoutVat, regulation.summary.unreserved.withVat)}
-          ${miniMetric("יתרה כוללת לגבייה", regulation.summary.remainingToCollect.withoutVat, regulation.summary.remainingToCollect.withVat)}
+          ${miniMetric("יתרה מול מסגרת", regulation.summary.remainingToCollect.withoutVat, regulation.summary.remainingToCollect.withVat)}
           ${miniMetric("הזמנות", getRegulationOrderCount(regulation), null, false)}
         </div>
         ${expanded ? renderInlineRegulationDetails(regulation.id) : ""}
@@ -1406,12 +1924,23 @@ function parseLocalOrderText(text, fileName) {
     || "";
   return {
     orderNumber,
+    regulationNumber: detectLocalOrderRegulationNumber(text, fileName),
     projectName: valueAfterLabel(rows, "שם הפרויקט") || fileName.replace(/\.[^.]+$/, ""),
     customerUnit: valueAfterLabel(rows, "יחידה מזמינה") || "",
     issuedAt: normalizeLocalDate(valueAfterLabel(rows, "תאריך הוצאת הזמנה")),
     expectedEndAt: normalizeLocalDate(valueAfterLabel(rows, "מועד מתוכנן לסיום ביצוע")),
     lines: parseLocalOrderLines(rows)
   };
+}
+
+function detectLocalOrderRegulationNumber(text, fileName = "") {
+  const source = `${String(text || "")}\n${String(fileName || "")}`;
+  const fullNumber = source.match(/206701\s*(92|46|27|73)\b/);
+  if (fullNumber?.[1]) return fullNumber[1];
+  const labelledNumber = source.match(/תקנה[^\d]{0,16}(92|46|27|73)\b/);
+  if (labelledNumber?.[1]) return labelledNumber[1];
+  if (/(?:STEM|סטם)/i.test(source)) return "27";
+  return "";
 }
 
 function parseLocalOrderLines(rows) {
@@ -1527,7 +2056,7 @@ function extractOrderDraftFromFileName(fileName) {
         { code: "33.1", quantity: 17, unitCost: 13000 },
         { code: "40", quantity: 26, unitCost: 220 },
         { code: "41", quantity: 25, unitCost: 330 },
-        { code: "44", quantity: 117, unitCost: 138 }
+        { code: "44", quantity: 117, unitCost: 137.5 }
       ]
     };
   }
@@ -1556,8 +2085,9 @@ function fillOrderFormFromExtractedData(extracted) {
   els.orderForm.customerUnit.value = extracted.customerUnit || "";
   els.orderForm.issuedAt.value = extracted.issuedAt || "";
   els.orderForm.expectedEndAt.value = extracted.expectedEndAt || "";
+  pendingOrderRegulationNumber = extracted.regulationNumber || "";
   setOrderLineRows(extracted.lines?.length ? extracted.lines : [{ code: "", quantity: "", unitCost: "" }]);
-  const inferredRegulation = inferRegulationForOrder(extracted.lines || []);
+  const inferredRegulation = inferRegulationForOrder(extracted.lines || [], pendingOrderRegulationNumber);
   if (inferredRegulation) {
     selectedRegulationId = inferredRegulation.id;
     orderIntakeRegulationId = inferredRegulation.id;
@@ -1575,6 +2105,7 @@ function clearExtractedOrderFields() {
   els.orderForm.expectedEndAt.value = "";
   setOrderLineRows([{ code: "", quantity: "", unitCost: "" }]);
   pendingOrderDraft = null;
+  pendingOrderRegulationNumber = "";
   setOrderPreviewMode(false);
 }
 
@@ -1585,6 +2116,7 @@ function setExtractionStatus(message, state = "idle") {
 
 function resetOrderIntakeForm() {
   pendingOrderDraft = null;
+  pendingOrderRegulationNumber = "";
   orderIntakeRegulationId = null;
   els.orderForm.reset();
   orderExtractionSucceeded = false;
@@ -1631,8 +2163,8 @@ function buildOrderIntakeDraft() {
   form.sourceFile = getFileName(els.orderForm, "sourceFile");
   const lines = collectOrderLineRows();
   const framework = currentFramework();
-  const regulation = inferRegulationForOrder(lines) || regulationDetails.get(orderIntakeRegulationId) || framework.regulations.find((entry) => entry.id === orderIntakeRegulationId);
-  const payload = { ...form, lines };
+  const regulation = inferRegulationForOrder(lines, pendingOrderRegulationNumber) || regulationDetails.get(orderIntakeRegulationId) || framework.regulations.find((entry) => entry.id === orderIntakeRegulationId);
+  const payload = { ...form, lines: normalizeOrderLinesToFramework(lines, regulation) };
   if (regulation) selectedRegulationId = regulation.id;
   return {
     framework,
@@ -1642,9 +2174,25 @@ function buildOrderIntakeDraft() {
   };
 }
 
-function inferRegulationForOrder(lines) {
+function normalizeOrderLinesToFramework(lines, regulation) {
+  if (!regulation) return lines;
+  const itemByCode = new Map((regulation.items || []).map((item) => [String(item.code), item]));
+  return lines.map((line) => {
+    const item = itemByCode.get(String(line.code));
+    if (!item) return line;
+    return {
+      ...line,
+      name: item.name || line.name,
+      unitCost: Number(item.unitCost || line.unitCost || 0)
+    };
+  });
+}
+
+function inferRegulationForOrder(lines, explicitRegulationNumber = "") {
   const framework = currentFramework();
   if (!framework || !lines?.length) return null;
+  const explicitRegulation = framework.regulations.find((regulation) => String(regulation.number) === String(explicitRegulationNumber || "").trim());
+  if (explicitRegulation) return explicitRegulation;
   const scores = framework.regulations.map((regulation) => {
     const items = new Map((regulation.items || []).map((item) => [String(item.code), item]));
     let exact = 0;
@@ -1662,7 +2210,15 @@ function inferRegulationForOrder(lines) {
       codeOnly
     };
   }).sort((a, b) => b.score - a.score);
-  return scores[0]?.score > 0 ? scores[0].regulation : null;
+  const bestScore = scores[0]?.score || 0;
+  if (bestScore <= 0) return null;
+  const bestMatches = scores.filter((entry) => entry.score === bestScore && entry.exact === scores[0].exact && entry.codeOnly === scores[0].codeOnly);
+  if (bestMatches.length === 1) return bestMatches[0].regulation;
+  if (orderIntakeRegulationId) {
+    const selectedMatch = bestMatches.find((entry) => entry.regulation.id === orderIntakeRegulationId);
+    if (selectedMatch) return selectedMatch.regulation;
+  }
+  return null;
 }
 
 function buildOrderIntakeChecks(framework, regulation, payload) {
@@ -2674,7 +3230,18 @@ function formatDual(withoutVat, withVat) {
 }
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 }).format(Number(value || 0));
+  const amount = Number(value || 0);
+  const hasDecimals = Math.abs(amount - Math.round(amount)) > 0.001;
+  return new Intl.NumberFormat("he-IL", {
+    style: "currency",
+    currency: "ILS",
+    minimumFractionDigits: hasDecimals ? 1 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0
+  }).format(amount);
+}
+
+function formatCurrencyPrecise(value) {
+  return new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(value || 0));
 }
 
 function formatNumber(value) {

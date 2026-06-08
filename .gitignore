@@ -12,11 +12,14 @@ data/*.db-*
 data/*.sqlite-*
 uploads/
 outputs/
+incoming-orders/
 
 # Local logs and temporary files
 *.log
 *.tmp
 .tmp/
+__pycache__/
+*.pyc
 
 # OS/editor noise
 .DS_Store

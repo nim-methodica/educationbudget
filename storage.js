@@ -41,6 +41,9 @@ export async function initializeStorage({ dataDir, dbFile, normalizeData, seedDa
     if (!hasState) {
       const initialData = await readJsonStateOrSeed();
       await saveData(initialData);
+    } else if (await isJsonStateNewerThanDatabase()) {
+      const initialData = await readJsonStateOrSeed();
+      await saveData(initialData);
     }
   } catch (error) {
     db = null;
@@ -92,11 +95,40 @@ export async function saveData(data) {
     refreshIndexes(normalized);
     db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    try {
+      db.exec("ROLLBACK");
+    } catch {}
+    if (isReadonlyDatabaseError(error)) {
+      usingSqlite = false;
+      storageStatus = {
+        mode: "json-fallback",
+        dbFile: paths.dbFile,
+        jsonFile: paths.jsonFile,
+        error: error.message
+      };
+      await writeFile(paths.jsonFile, JSON.stringify(normalized, null, 2), "utf8");
+      return;
+    }
     throw error;
   }
 
   await writeFile(paths.jsonFile, JSON.stringify(normalized, null, 2), "utf8").catch(() => {});
+}
+
+function isReadonlyDatabaseError(error) {
+  return /readonly database|SQLITE_READONLY/i.test(String(error?.message || error));
+}
+
+async function isJsonStateNewerThanDatabase() {
+  try {
+    const [jsonStats, dbStats] = await Promise.all([
+      stat(paths.jsonFile),
+      stat(paths.dbFile)
+    ]);
+    return jsonStats.mtimeMs > dbStats.mtimeMs;
+  } catch {
+    return false;
+  }
 }
 
 function createSchema() {

@@ -39,8 +39,29 @@ function normalizeData(data) {
   data.defaultFrameworkId ??= data.frameworks[0]?.id ?? null;
   data.monthlyCases ??= [];
   data.users ??= [];
+  for (const framework of data.frameworks || []) {
+    framework.cumulativeExecution ??= {};
+    for (const regulation of framework.regulations || []) {
+      if (String(regulation.number) === "92" && regulation.description === "התקנה המרכזית") {
+        regulation.description = "מינהל חדשנות וטכנולוגיה";
+      }
+    }
+  }
   removeDuplicateMonthlyCollections(data);
+  cleanKnownNonTenderOrderLines(data);
   return data;
+}
+
+function cleanKnownNonTenderOrderLines(data) {
+  for (const framework of data.frameworks || []) {
+    for (const regulation of framework.regulations || []) {
+      for (const order of regulation.projectOrders || []) {
+        if (order.orderNumber === "25-019") {
+          order.lines = (order.lines || []).filter((line) => String(line.code || "").trim() !== "סיכום");
+        }
+      }
+    }
+  }
 }
 
 function removeDuplicateMonthlyCollections(data) {
@@ -79,14 +100,14 @@ function seedData() {
         id: "reg-92",
         number: "92",
         name: "תקנה 20670192",
-        description: "התקנה המרכזית",
+        description: "מינהל חדשנות וטכנולוגיה",
         items: [
           { code: "18.2", name: "תוכן טקסטואלי / טקסט עיוני (מתקדם)", unitCost: 825, approvedQuantity: 120 },
           { code: "22.2", name: "סרטון ללא צילום (מתקדם)", unitCost: 6000, approvedQuantity: 30 },
           { code: "33.1", name: "לומדה בסיסית", unitCost: 13000, approvedQuantity: 35 },
           { code: "40", name: "שעת עריכת תוכן", unitCost: 220, approvedQuantity: 160 },
           { code: "41", name: "שעת מומחה תוכן", unitCost: 330, approvedQuantity: 140 },
-          { code: "44", name: "ייעוץ מדעי וטכנו-פדגוגי", unitCost: 138, approvedQuantity: 300 }
+          { code: "44", name: "ייעוץ מדעי וטכנו-פדגוגי", unitCost: 137.5, approvedQuantity: 300 }
         ],
         projectOrders: [
           {
@@ -105,7 +126,7 @@ function seedData() {
               { code: "33.1", quantity: 17, unitCost: 13000 },
               { code: "40", quantity: 26, unitCost: 220 },
               { code: "41", quantity: 25, unitCost: 330 },
-              { code: "44", quantity: 117, unitCost: 138 }
+              { code: "44", quantity: 117, unitCost: 137.5 }
             ],
             collections: [
               { id: "col-po-25-053-1", month: "2026-04", status: "approved", invoiceId: "inv-016533", lineCollections: [
@@ -159,6 +180,21 @@ function round2(num) {
   return Math.round((Number(num) || 0) * 100) / 100;
 }
 
+function round3(num) {
+  return Math.round((Number(num) || 0) * 1000) / 1000;
+}
+
+function compareItemCodes(a, b) {
+  const left = String(a || "").split(".").map(Number);
+  const right = String(b || "").split(".").map(Number);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (left[index] || 0) - (right[index] || 0);
+    if (delta !== 0) return delta;
+  }
+  return String(a || "").localeCompare(String(b || ""), "he");
+}
+
 function summarizeFramework(framework) {
   return {
     ...framework,
@@ -174,12 +210,15 @@ function summarizeRegulation(regulation) {
   const frameAmount = Number.isFinite(regulation.frameworkAmount) ? regulation.frameworkAmount : calculatedFrameAmount;
   const reserved = regulation.projectOrders.reduce((sum, order) => sum + orderReservedAmount(order), 0);
   const collected = regulation.projectOrders.reduce((sum, order) => sum + collectOrderAmount(order), 0);
+  const cumulativeExecution = Number(regulation.cumulativeExecution?.withoutVat || 0);
   return {
     framework: money(frameAmount),
     reserved: money(reserved),
     collected: money(collected),
+    cumulativeExecution: money(cumulativeExecution),
     unreserved: money(frameAmount - reserved),
-    remainingToCollect: money(frameAmount - collected),
+    remainingToCollect: money(frameAmount - cumulativeExecution),
+    orderExecutionGap: money(reserved - cumulativeExecution),
     unpaidOrders: money(reserved - collected),
     activeProjects: regulation.projectOrders.filter((order) => order.status !== "closed").length,
     orderCount: regulation.projectOrders.length,
@@ -236,6 +275,419 @@ async function extractOrderFromUpload(upload) {
     return { ok: false, error: "לא הצלחתי לחלץ מהקובץ מספר הזמנה ושורות פריטים. הקליטה נחסמה עד לחילוץ תקין." };
   }
   return { ok: true, extracted };
+}
+
+function extractFrameworkUpdateFromUpload(data, upload) {
+  const framework = findFramework(data, upload.frameworkId || data.defaultFrameworkId);
+  if (!framework) return { ok: false, error: "הזמנת המסגרת לא נמצאה." };
+  const buffer = decodeDataUrl(upload.dataUrl || "");
+  if (!buffer.length) return { ok: false, error: "לא התקבל קובץ לקריאה." };
+  const ext = path.extname(upload.fileName || "").toLowerCase();
+  if (ext !== ".xlsx" && ext !== ".xlsm") return { ok: false, error: "עדכון מסגרת נתמך כרגע מקובץ אקסל בלבד." };
+
+  const sheets = extractWorkbookRowsFromXlsx(buffer);
+  const changePlan = extractFrameworkChangePlanFromSheets(sheets);
+  if (changePlan) {
+    return {
+      ok: true,
+      fileName: upload.fileName || "",
+      sheetName: changePlan.sheetName,
+      sourceType: "change-plan",
+      summary: changePlan.summary,
+      cumulative: [],
+      changes: compareFrameworkUpdate(framework, changePlan.summary, changePlan.itemsByRegulation, { includeUnchanged: true })
+    };
+  }
+
+  const sheet = sheets.find((entry) => entry.rows.some((row) => /סה"?כ הסכמים לפי תקנות/.test(row[50] || "")))
+    || sheets.find((entry) => entry.rows.some((row) => /תקנה 20670192/.test(row[50] || "") && /כמות/.test(row[50 + 0] || row[50])))
+    || sheets.find((entry) => entry.rows.some((row) => row.some((cell) => /סה"?כ הסכמים לפי תקנות/.test(cell))))
+    || sheets.find((entry) => entry.rows.some((row) => row.some((cell) => /דוח ביצוע מצטבר/.test(cell))));
+  if (!sheet) return { ok: false, error: "לא נמצא בקובץ אזור סיכום תקנות או דוח ביצוע מצטבר." };
+
+  const summary = extractFrameworkSummaryFromRows(sheet.rows);
+  const itemsByRegulation = extractFrameworkItemsFromRows(sheet.rows, summary.withoutVatRowIndex);
+  const cumulative = extractFrameworkCumulativeAnchors(sheet.rows);
+  if (!Object.keys(summary.regulations).length || !Object.values(itemsByRegulation).some((items) => items.length)) {
+    return {
+      ok: false,
+      error: "לא הצלחתי לזהות את סיכום התקנות ופריטי המסגרת בקובץ.",
+      diagnostics: {
+        sheetName: sheet.name,
+        rows: sheet.rows.length,
+        summaryRow: summary.withoutVatRowIndex,
+        itemCounts: Object.fromEntries(Object.entries(itemsByRegulation).map(([number, items]) => [number, items.length]))
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    fileName: upload.fileName || "",
+    sheetName: sheet.name,
+    summary,
+    cumulative,
+    changes: compareFrameworkUpdate(framework, summary, itemsByRegulation)
+  };
+}
+
+function extractFrameworkChangePlanFromSheets(sheets) {
+  const sheetColumns = {
+    "92": { beforeQuantity: 8, beforeAmount: 9, changeQuantity: 10, changeAmount: 11, afterQuantity: 12, afterAmount: 13 },
+    "46": { beforeQuantity: 8, beforeAmount: 9, changeQuantity: 10, changeAmount: 11, afterQuantity: 12, afterAmount: 13 },
+    "27": { beforeQuantity: 4, beforeAmount: 5, changeQuantity: 6, changeAmount: 7, afterQuantity: 8, afterAmount: 9 },
+    "73": { beforeQuantity: 4, beforeAmount: 5, changeQuantity: 6, changeAmount: 7, afterQuantity: 8, afterAmount: 9 }
+  };
+  const itemsByRegulation = { "92": [], "46": [], "27": [], "73": [] };
+  const summary = {
+    label: "תוכנית שינויים לפי חוצצי תקנות",
+    withoutVatRowIndex: -1,
+    withVatRowIndex: -1,
+    regulations: {},
+    total: { withoutVat: 0, withVat: 0 }
+  };
+  let foundAny = false;
+
+  Object.entries(sheetColumns).forEach(([number, columns]) => {
+    const sheet = sheets.find((entry) => String(entry.name || "").trim() === number);
+    if (!sheet) return;
+    const items = extractFrameworkChangePlanItems(sheet.rows, columns);
+    if (!items.length) return;
+    foundAny = true;
+    itemsByRegulation[number] = items;
+    const quantity = round2(items.reduce((sum, item) => sum + Number(item.approvedQuantity || 0), 0));
+    const withoutVat = round2(items.reduce((sum, item) => sum + Number(item.amountWithoutVat || 0), 0));
+    summary.regulations[number] = {
+      quantity,
+      withoutVat,
+      withVat: round2(withoutVat * (1 + VAT_RATE))
+    };
+    summary.total.withoutVat = round2(summary.total.withoutVat + withoutVat);
+  });
+
+  summary.total.withVat = round2(summary.total.withoutVat * (1 + VAT_RATE));
+  Object.values(itemsByRegulation).forEach((items) => items.sort((a, b) => compareItemCodes(a.code, b.code)));
+  return foundAny ? { sheetName: "חוצצי תקנות 92/46/27/73", summary, itemsByRegulation } : null;
+}
+
+function extractFrameworkChangePlanItems(rows, columns) {
+  const items = [];
+  rows.forEach((row) => {
+    const code = normalizeItemCode(row[0]);
+    const name = String(row[1] || "").trim();
+    const unitCost = parseNumber(row[2]);
+    if (!code || !name || !Number.isFinite(unitCost) || unitCost <= 0) return;
+    if (/סה"?כ|סהכ|סיכום|עלות/.test(name)) return;
+
+    const beforeQuantity = parseNumber(row[columns.beforeQuantity]);
+    const beforeAmount = parseNumber(row[columns.beforeAmount]);
+    const quantityChange = parseNumber(row[columns.changeQuantity]);
+    const amountChange = parseNumber(row[columns.changeAmount]);
+    const approvedQuantity = parseNumber(row[columns.afterQuantity]);
+    const amountWithoutVat = parseNumber(row[columns.afterAmount]);
+    const hasRelevantValue = [beforeQuantity, beforeAmount, quantityChange, amountChange, approvedQuantity, amountWithoutVat]
+      .some((value) => Number.isFinite(value) && value !== 0);
+    if (!hasRelevantValue) return;
+
+    items.push({
+      code,
+      name,
+      unitCost: round3(unitCost),
+      approvedQuantity: round3(approvedQuantity),
+      quantityChange: round3(quantityChange),
+      quantityBeforeChange: round3(beforeQuantity),
+      amountWithoutVat: round2(amountWithoutVat)
+    });
+  });
+  return items;
+}
+
+function extractFrameworkSummaryFromRows(rows) {
+  const amountColumns = { "92": 51, "46": 53, "27": 55, "73": 57, total: 59 };
+  const candidates = rows
+    .map((row, index) => ({ index, row, total: parseNumber(row[amountColumns.total]) }))
+    .filter((entry) => Number.isFinite(entry.total) && entry.total > 1000000);
+  let withoutVat = candidates[0];
+  let withVatRow = null;
+  for (let i = 0; i < candidates.length - 1; i += 1) {
+    const first = candidates[i];
+    const second = candidates[i + 1];
+    if (Math.abs(second.total / first.total - (1 + VAT_RATE)) < 0.01) {
+      withoutVat = first;
+      withVatRow = second;
+      break;
+    }
+  }
+  const regulations = {};
+  Object.entries(amountColumns).forEach(([number, amountColumn]) => {
+    if (number === "total") return;
+    const amount = round2(parseNumber(withoutVat?.row?.[amountColumn]));
+    const quantity = parseNumber(withoutVat?.row?.[amountColumn - 1]);
+    const withVat = withVatRow ? round2(parseNumber(withVatRow.row[amountColumn])) : round2(amount * (1 + VAT_RATE));
+    if (Number.isFinite(amount)) regulations[number] = { quantity, withoutVat: amount, withVat };
+  });
+  return {
+    label: "סה״כ הסכמים לפי תקנות",
+    withoutVatRowIndex: withoutVat?.index ?? -1,
+    withVatRowIndex: withVatRow?.index ?? -1,
+    regulations,
+    total: {
+      withoutVat: round2(parseNumber(withoutVat?.row?.[amountColumns.total])),
+      withVat: withVatRow ? round2(parseNumber(withVatRow.row[amountColumns.total])) : round2(parseNumber(withoutVat?.row?.[amountColumns.total]) * (1 + VAT_RATE))
+    }
+  };
+}
+
+function extractFrameworkItemsFromRows(rows, stopIndex) {
+  const regulationColumns = [
+    { number: "92", changeQuantity: 40, quantity: 50, amount: 51 },
+    { number: "46", changeQuantity: 42, quantity: 52, amount: 53 },
+    { number: "27", changeQuantity: 44, quantity: 54, amount: 55 },
+    { number: "73", changeQuantity: 46, quantity: 56, amount: 57 }
+  ];
+  const itemsByRegulation = { "92": [], "46": [], "27": [], "73": [] };
+  const lastIndex = stopIndex > 0 ? stopIndex : rows.length;
+  rows.slice(0, lastIndex).forEach((row) => {
+    const code = normalizeItemCode(row[0]);
+    const name = String(row[1] || "").trim();
+    const unitCost = parseNumber(row[2]);
+    if (!code || !name || !Number.isFinite(unitCost) || unitCost <= 0) return;
+    regulationColumns.forEach((columns) => {
+      const quantity = parseNumber(row[columns.quantity]);
+      const amount = parseNumber(row[columns.amount]);
+      const quantityChange = parseNumber(row[columns.changeQuantity]);
+      if ((Number.isFinite(quantity) && quantity > 0) || (Number.isFinite(amount) && amount > 0)) {
+        itemsByRegulation[columns.number].push({
+          code,
+          name,
+          unitCost: round2(unitCost),
+          approvedQuantity: round2(quantity),
+          quantityChange: round2(quantityChange),
+          quantityBeforeChange: round2(quantity - quantityChange),
+          amountWithoutVat: round2(amount)
+        });
+      }
+    });
+  });
+  return itemsByRegulation;
+}
+
+function extractFrameworkCumulativeAnchors(rows) {
+  const anchors = [];
+  rows.forEach((row, index) => {
+    row.forEach((cell, column) => {
+      if (!/דוח ביצוע מצטבר/.test(cell)) return;
+      const columns = detectReportColumns(row, column);
+      const totals = extractReportTotals(rows, index, columns);
+      anchors.push({ label: cell, rowIndex: index, columnIndex: column, columns, totals });
+    });
+  });
+  return anchors;
+}
+
+function detectReportColumns(row, anchorColumn) {
+  const regs = [];
+  for (let column = anchorColumn; column < Math.min(row.length, anchorColumn + 12); column += 1) {
+    const match = String(row[column] || "").match(/206701(92|46|27|73)/);
+    if (match) regs.push({ number: match[1], quantity: column, amount: column + 1 });
+  }
+  return regs;
+}
+
+function extractReportTotals(rows, anchorIndex, columns) {
+  const totals = {};
+  const candidates = rows.slice(anchorIndex + 1).filter((row) =>
+    columns.some((entry) => parseNumber(row[entry.amount]) > 0)
+  );
+  const row = candidates[candidates.length - 1] || [];
+  columns.forEach((entry) => {
+    totals[entry.number] = {
+      quantity: parseNumber(row[entry.quantity]),
+      withoutVat: round2(parseNumber(row[entry.amount]))
+    };
+  });
+  return totals;
+}
+
+function compareFrameworkUpdate(framework, summary, itemsByRegulation, options = {}) {
+  const regulationChanges = framework.regulations.map((regulation) => {
+    const extracted = summary.regulations[regulation.number] || { withoutVat: 0, withVat: 0 };
+    const current = Number(regulation.frameworkAmount || 0);
+    return {
+      regulationId: regulation.id,
+      number: regulation.number,
+      name: regulation.name,
+      currentWithoutVat: round2(current),
+      extractedWithoutVat: round2(extracted.withoutVat),
+      currentWithVat: round2(current * (1 + VAT_RATE)),
+      extractedWithVat: round2(extracted.withVat),
+      deltaWithoutVat: round2(extracted.withoutVat - current)
+    };
+  });
+
+  const itemChanges = framework.regulations.flatMap((regulation) => {
+    const current = new Map((regulation.items || []).map((item) => [item.code, item]));
+    const extracted = new Map((itemsByRegulation[regulation.number] || []).map((item) => [item.code, item]));
+    const codes = [...new Set([...current.keys(), ...extracted.keys()])].sort(compareItemCodes);
+    return codes.map((code) => {
+      const before = current.get(code);
+      const after = extracted.get(code);
+      const status = before && after ? "changed" : after ? "new" : "removed";
+      const quantityDelta = round2(Number(after?.approvedQuantity || 0) - Number(before?.approvedQuantity || 0));
+      const unitDelta = round2(Number(after?.unitCost || 0) - Number(before?.unitCost || 0));
+      const nameChanged = Boolean(before && after && before.name !== after.name);
+      const fileQuantityChange = round2(after?.quantityChange || 0);
+      const unchanged = status === "changed" && fileQuantityChange === 0 && quantityDelta === 0 && unitDelta === 0 && !nameChanged;
+      return {
+        regulationNumber: regulation.number,
+        regulationId: regulation.id,
+        code,
+        status: unchanged ? "unchanged" : status,
+        currentName: before?.name || "",
+        extractedName: after?.name || "",
+        currentQuantity: round2(before?.approvedQuantity || 0),
+        fileQuantityBeforeChange: round2(after?.quantityBeforeChange || 0),
+        fileQuantityChange,
+        extractedQuantity: round2(after?.approvedQuantity || 0),
+        quantityDelta,
+        currentUnitCost: round2(before?.unitCost || 0),
+        extractedUnitCost: round2(after?.unitCost || 0),
+        unitDelta,
+        nameChanged
+      };
+    }).filter((change) =>
+      options.includeUnchanged || change.status !== "unchanged"
+    );
+  });
+
+  return { regulationChanges, itemChanges };
+}
+
+function extractCumulativeExecutionFromUpload(data, upload) {
+  const framework = findFramework(data, upload.frameworkId || data.defaultFrameworkId);
+  if (!framework) return { ok: false, error: "הזמנת המסגרת לא נמצאה." };
+  const buffer = decodeDataUrl(upload.dataUrl || "");
+  if (!buffer.length) return { ok: false, error: "לא התקבל קובץ לקריאה." };
+  const ext = path.extname(upload.fileName || "").toLowerCase();
+  if (ext !== ".xlsx" && ext !== ".xlsm") return { ok: false, error: "ביצוע מצטבר נתמך כרגע מקובץ אקסל בלבד." };
+  const sheets = extractWorkbookRowsFromXlsx(buffer);
+  const sheet = sheets.find((entry) => entry.rows.some((row) => row.some((cell) => /דוח ביצוע מצטבר/.test(cell))))
+    || sheets.find((entry) => entry.rows.some((row) => /תקנה 20670192/.test(row[60] || "") || /תקנה 20670192/.test(row[61] || "")));
+  if (!sheet) return { ok: false, error: "לא נמצא בקובץ אזור דוח ביצוע מצטבר." };
+  const totals = extractCumulativeExecutionFromRows(sheet.rows);
+  if (!Object.keys(totals.regulations).length) {
+    return { ok: false, error: "לא הצלחתי לזהות סכומי ביצוע מצטבר לפי תקנות.", diagnostics: { sheetName: sheet.name, rows: sheet.rows.length } };
+  }
+  const changes = framework.regulations.map((regulation) => {
+    const extracted = totals.regulations[regulation.number] || { quantity: 0, withoutVat: 0 };
+    const current = Number(regulation.cumulativeExecution?.withoutVat || 0);
+    return {
+      regulationId: regulation.id,
+      number: regulation.number,
+      name: regulation.name,
+      currentWithoutVat: round2(current),
+      extractedWithoutVat: round2(extracted.withoutVat),
+      currentWithVat: round2(current * (1 + VAT_RATE)),
+      extractedWithVat: round2(extracted.withoutVat * (1 + VAT_RATE)),
+      deltaWithoutVat: round2(extracted.withoutVat - current),
+      quantity: round3(extracted.quantity)
+    };
+  });
+  return { ok: true, fileName: upload.fileName || "", sheetName: sheet.name, totals, changes };
+}
+
+function extractCumulativeExecutionFromRows(rows) {
+  const columns = {
+    "92": { quantity: 60, amount: 61 },
+    "46": { quantity: 62, amount: 63 },
+    "27": { quantity: 64, amount: 65 },
+    "73": { quantity: 66, amount: 67 }
+  };
+  const regulations = {};
+  Object.entries(columns).forEach(([number, column]) => {
+    const matchingRows = rows
+      .map((row) => ({ quantity: parseNumber(row[column.quantity]), withoutVat: parseNumber(row[column.amount]) }))
+      .filter((entry) => Number.isFinite(entry.withoutVat) && entry.withoutVat > 0);
+    const totalRow = matchingRows[matchingRows.length - 1];
+    regulations[number] = totalRow
+      ? { quantity: round3(totalRow.quantity), withoutVat: round2(totalRow.withoutVat), withVat: round2(totalRow.withoutVat * (1 + VAT_RATE)) }
+      : { quantity: 0, withoutVat: 0, withVat: 0 };
+  });
+  const totalWithoutVat = round2(Object.values(regulations).reduce((sum, row) => sum + Number(row.withoutVat || 0), 0));
+  return {
+    label: "דוח ביצוע מצטבר",
+    regulations,
+    total: { withoutVat: totalWithoutVat, withVat: round2(totalWithoutVat * (1 + VAT_RATE)) }
+  };
+}
+
+async function applyCumulativeExecutionUpdate(data, body) {
+  const framework = findFramework(data, body.frameworkId || data.defaultFrameworkId);
+  if (!framework) return { ok: false, status: 404, error: "הזמנת המסגרת לא נמצאה." };
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  if (!rows.length) return { ok: false, status: 422, error: "לא התקבלו נתוני ביצוע מצטבר." };
+  const byNumber = new Map(rows.map((row) => [String(row.number || row.regulationNumber || ""), row]));
+  for (const regulation of framework.regulations || []) {
+    const row = byNumber.get(String(regulation.number));
+    if (!row) continue;
+    const withoutVat = round2(row.withoutVat ?? row.extractedWithoutVat);
+    regulation.cumulativeExecution = {
+      quantity: round3(row.quantity || 0),
+      withoutVat,
+      withVat: round2(withoutVat * (1 + VAT_RATE)),
+      sourceFile: body.sourceFileName || "",
+      updatedAt: new Date().toISOString()
+    };
+  }
+  framework.cumulativeExecution = {
+    sourceFile: body.sourceFileName || "",
+    updatedAt: new Date().toISOString()
+  };
+  await saveData(data);
+  return { ok: true, framework: summarizeFramework(framework) };
+}
+
+async function applyFrameworkItemsUpdate(data, body) {
+  const framework = findFramework(data, body.frameworkId || data.defaultFrameworkId);
+  if (!framework) return { ok: false, status: 404, error: "הזמנת המסגרת לא נמצאה." };
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  if (!rows.length) return { ok: false, status: 422, error: "לא התקבלו פריטים לעדכון." };
+  const rowsByRegulation = new Map();
+  rows.forEach((row) => {
+    const regulationNumber = String(row.regulationNumber || "").trim();
+    const code = normalizeItemCode(row.code);
+    const name = String(row.name || row.extractedName || row.currentName || "").trim();
+    const unitCost = round3(row.unitCost ?? row.extractedUnitCost ?? row.currentUnitCost);
+    const approvedQuantity = round3(row.approvedQuantity ?? row.extractedQuantity);
+    if (!regulationNumber || !code || !name || !Number.isFinite(unitCost) || unitCost < 0 || !Number.isFinite(approvedQuantity)) return;
+    if (!rowsByRegulation.has(regulationNumber)) rowsByRegulation.set(regulationNumber, []);
+    rowsByRegulation.get(regulationNumber).push({ code, name, unitCost, approvedQuantity });
+  });
+
+  for (const regulation of framework.regulations || []) {
+    const items = rowsByRegulation.get(regulation.number);
+    if (!items) continue;
+    regulation.items = items
+      .sort((a, b) => compareItemCodes(a.code, b.code))
+      .map((item) => ({
+        ...item,
+        approvedQuantity: round3(item.approvedQuantity),
+        unitCost: round3(item.unitCost)
+      }));
+    regulation.frameworkAmount = round2(regulation.items.reduce((sum, item) => sum + item.unitCost * item.approvedQuantity, 0));
+  }
+
+  framework.versions ??= [];
+  framework.activeVersionId = `fw-version-${Date.now()}`;
+  framework.versions.push({
+    id: framework.activeVersionId,
+    label: body.sourceFileName ? `עדכון פריטים ${body.sourceFileName}` : "עדכון פריטי מסגרת",
+    sourceFile: body.sourceFileName || "",
+    approvedAt: new Date().toISOString().slice(0, 10),
+    createdAt: new Date().toISOString()
+  });
+  await saveData(data);
+  return { ok: true, framework: summarizeFramework(framework) };
 }
 
 async function applyCollectionDocument(data, caseId, upload) {
@@ -620,7 +1072,10 @@ function findCollectionItemName(row, header) {
 function normalizeItemCode(value) {
   const text = String(value || "").trim();
   const match = text.match(/(?:^|\s)(\d{1,2}(?:\.\d+)?)(?=\s|$|[^\d.])/);
-  return match?.[1] || "";
+  if (!match) return "";
+  const numeric = Number(match[1]);
+  if (!Number.isFinite(numeric)) return match[1];
+  return String(Math.round(numeric * 1000) / 1000).replace(/\.0+$/, "");
 }
 
 function normalizeLooseText(value) {
@@ -822,12 +1277,23 @@ function parseOrderText(text, fileName, expectedOrderNumber = "") {
   ]) || findFirstMatch(fileName, [/\b(\d{2}-\d{3})\b/, /\b(45\d{8})\b/]);
   return {
     orderNumber: orderNumber || "",
+    regulationNumber: detectOrderRegulationNumber(scopedText, fileName) || detectOrderRegulationNumber(normalized, fileName),
     projectName: guessProjectName(scopedText, fileName),
     customerUnit: findFirstMatch(scopedText, [/(?:יחידה\s+מזמינה|אגף|מינהל)\s*[:\-]?\s*([^\n|]{2,80})/]) || "",
     issuedAt: normalizeDate(findFirstMatch(scopedText, [/(?:תאריך\s+הזמנה|תאריך)\D{0,12}(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/])),
     expectedEndAt: "",
     lines: parseOrderLines(scopedText)
   };
+}
+
+function detectOrderRegulationNumber(text, fileName = "") {
+  const source = `${String(text || "")}\n${String(fileName || "")}`;
+  const fullNumber = source.match(/206701\s*(92|46|27|73)\b/);
+  if (fullNumber?.[1]) return fullNumber[1];
+  const labelledNumber = source.match(/תקנה[^\d]{0,16}(92|46|27|73)\b/);
+  if (labelledNumber?.[1]) return labelledNumber[1];
+  if (/(?:STEM|סטם)/i.test(source)) return "27";
+  return "";
 }
 
 function isolateOrderBlock(text, orderNumber) {
@@ -927,6 +1393,35 @@ function knownTenderItemName(code) {
     "15.3": "הפעלת משדר מאולפן וידאו (מורכבת)"
   };
   return knownItems[String(code || "").trim()] || "";
+}
+
+function normalizeOrderLineInput(line) {
+  const code = String(line.code || "");
+  const result = {
+    code,
+    name: cleanOrderItemName(line.name || line.inferredItemName || "") || knownTenderItemName(code),
+    quantity: Number(line.quantity || 0),
+    unitCost: Number(line.unitCost || 0)
+  };
+  const utilizedQuantity = Number(line.utilizedQuantity ?? line.collectedQuantity);
+  if (Number.isFinite(utilizedQuantity)) {
+    result.utilizedQuantity = utilizedQuantity;
+  }
+  return result;
+}
+
+function canonicalizeOrderLinesForRegulation(lines, regulation) {
+  const itemByCode = new Map((regulation?.items || []).map((item) => [String(item.code), item]));
+  return (lines || []).map((line) => {
+    const normalized = normalizeOrderLineInput(line);
+    const item = itemByCode.get(String(normalized.code));
+    if (!item) return normalized;
+    return {
+      ...normalized,
+      name: item.name || normalized.name,
+      unitCost: Number(item.unitCost || normalized.unitCost || 0)
+    };
+  });
 }
 
 function normalizeKnownOrderQuantity(code, quantity, unitCost) {
@@ -1065,6 +1560,30 @@ async function handleApi(req, res, url) {
     return json(res, result, result.ok ? 200 : 422);
   }
 
+  if (req.method === "POST" && url.pathname === "/api/extract-framework-update") {
+    const body = await parseJsonBody(req);
+    const result = extractFrameworkUpdateFromUpload(data, body);
+    return json(res, result, result.ok ? 200 : 422);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/apply-framework-update") {
+    const body = await parseJsonBody(req);
+    const result = await applyFrameworkItemsUpdate(data, body);
+    return json(res, result, result.ok ? 200 : result.status || 422);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/extract-cumulative-execution") {
+    const body = await parseJsonBody(req);
+    const result = extractCumulativeExecutionFromUpload(data, body);
+    return json(res, result, result.ok ? 200 : 422);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/apply-cumulative-execution") {
+    const body = await parseJsonBody(req);
+    const result = await applyCumulativeExecutionUpdate(data, body);
+    return json(res, result, result.ok ? 200 : result.status || 422);
+  }
+
   if (req.method === "POST" && url.pathname === "/api/exports") {
     const body = await parseJsonBody(req);
     const fileName = safeExportFileName(body.fileName || `export-${Date.now()}.csv`);
@@ -1088,7 +1607,7 @@ async function handleApi(req, res, url) {
       activeVersionId: `${id}-v1`,
       versions: [{ id: `${id}-v1`, label: "גרסה ראשונה", sourceFile: body.sourceFile || "", approvedAt: body.approvedAt || "", createdAt: new Date().toISOString() }],
       regulations: [
-        { id: `${id}-reg-92`, number: "92", name: "תקנה 20670192", description: "התקנה המרכזית", items: [], projectOrders: [] },
+        { id: `${id}-reg-92`, number: "92", name: "תקנה 20670192", description: "מינהל חדשנות וטכנולוגיה", items: [], projectOrders: [] },
         { id: `${id}-reg-46`, number: "46", name: "תקנה 20670146", description: "מזכירות פדגוגית / מזה״פ", items: [], projectOrders: [] },
         { id: `${id}-reg-27`, number: "27", name: "תקנה 20670127", description: "ישראל ריאלית ו-STEM", items: [], projectOrders: [] },
         { id: `${id}-reg-73`, number: "73", name: "תקנה 20670173", description: "בינה מלאכותית", items: [], projectOrders: [] }
@@ -1137,12 +1656,7 @@ async function handleApi(req, res, url) {
       status: "active",
       sourceFile: body.sourceFile || "",
       closeReason: "",
-      lines: (body.lines || []).map((line) => ({
-        code: String(line.code || ""),
-        name: cleanOrderItemName(line.name || line.inferredItemName || "") || knownTenderItemName(line.code),
-        quantity: Number(line.quantity || 0),
-        unitCost: Number(line.unitCost || 0)
-      })),
+      lines: canonicalizeOrderLinesForRegulation(body.lines || [], regulation),
       collections: []
     };
     regulation.projectOrders.push(order);
@@ -1162,12 +1676,7 @@ async function handleApi(req, res, url) {
           order.issuedAt = body.issuedAt || "";
           order.expectedEndAt = body.expectedEndAt || "";
           order.sourceFile = body.sourceFile || order.sourceFile || "";
-          order.lines = (body.lines || []).map((line) => ({
-            code: String(line.code || ""),
-            name: cleanOrderItemName(line.name || line.inferredItemName || "") || knownTenderItemName(line.code),
-            quantity: Number(line.quantity || 0),
-            unitCost: Number(line.unitCost || 0)
-          }));
+          order.lines = canonicalizeOrderLinesForRegulation(body.lines || [], regulation);
           order.totalWithoutVat = Number.isFinite(Number(body.totalWithoutVat))
             ? Number(body.totalWithoutVat)
             : order.lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);

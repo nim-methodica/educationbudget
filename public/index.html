@@ -22,6 +22,8 @@
 
         <a id="frameworkItemsBtn" class="quiet-action" href="#framework-items" title="הצג את פריטי הזמנת המסגרת לפי תקנות">פריטי מסגרת</a>
         <button id="budgetControlBtn" class="quiet-action" type="button" title="בקרת תקציב לפי תקנות">בקרת תקציב</button>
+        <button id="frameworkUpdateBtn" class="quiet-action" type="button" title="בדיקת עדכון כמויות וסכומי מסגרת מקובץ דוח ביצוע">עדכון מסגרת</button>
+        <button id="cumulativeExecutionBtn" class="quiet-action" type="button" title="עדכון ביצוע מצטבר מדוח ביצוע">ביצוע מצטבר</button>
         <button id="reserveSimulationBtn" class="quiet-action" type="button" title="תכנון תקציב עתידי">תכנון עתידי</button>
         <button id="setDefaultBtn" class="quiet-action" title="סמן את הזמנת המסגרת הנבחרת כפעילה">סמן כפעיל</button>
         <button id="newFrameworkBtn" class="quiet-action" title="פתח הזמנת מסגרת לשנה חדשה">הזמנה חדשה</button>
@@ -248,6 +250,40 @@
       </div>
     </dialog>
 
+    <dialog id="frameworkUpdateDialog">
+      <div class="dialog-body framework-update-dialog">
+        <div class="section-header">
+          <div>
+            <h2>עדכון הזמנת מסגרת</h2>
+            <p class="muted">בדיקה יבשה לקובץ חדש. הנתונים לא מתעדכנים עד שמאשרים גרסה חדשה.</p>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div class="file-first-panel">
+          <label>קובץ דוח ביצוע / עדכון מסגרת <input id="frameworkUpdateFileInput" type="file" accept=".xlsx,.xlsm" /></label>
+          <div id="frameworkUpdateStatus" class="extraction-status">בחר קובץ כדי לראות אילו תקנות ופריטים השתנו.</div>
+        </div>
+        <div id="frameworkUpdatePreview"></div>
+      </div>
+    </dialog>
+
+    <dialog id="cumulativeExecutionDialog">
+      <div class="dialog-body framework-update-dialog">
+        <div class="section-header">
+          <div>
+            <h2>עדכון ביצוע מצטבר</h2>
+            <p class="muted">הנתונים נקראים מאזור דוח ביצוע מצטבר ואינם משנים הזמנות או גביות.</p>
+          </div>
+          <button class="icon-button" type="button" data-close-dialog>×</button>
+        </div>
+        <div class="file-first-panel">
+          <label>קובץ דוח ביצוע <input id="cumulativeExecutionFileInput" type="file" accept=".xlsx,.xlsm" /></label>
+          <div id="cumulativeExecutionStatus" class="extraction-status">בחר קובץ כדי לראות ביצוע מצטבר לפי תקנות.</div>
+        </div>
+        <div id="cumulativeExecutionPreview"></div>
+      </div>
+    </dialog>
+
     <dialog id="reserveSimulationDialog">
       <div class="dialog-body reserve-simulation-dialog">
         <div class="section-header">
@@ -273,7 +309,7 @@
         <div id="orderDetailsContent"></div>
       </div>
     </dialog>
-    <script src="/app.js?v=20260527-future-planning-table" type="module"></script>
+    <script src="/app.js?v=20260531-framework-update" type="module"></script>
   </body>
 </html>
 
