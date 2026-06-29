@@ -1686,11 +1686,13 @@ async function handleApi(req, res, url) {
         if (order) {
           order.orderNumber = body.orderNumber || order.orderNumber;
           order.projectName = body.projectName || order.projectName;
-          order.customerUnit = body.customerUnit || "";
-          order.issuedAt = body.issuedAt || "";
-          order.expectedEndAt = body.expectedEndAt || "";
+          order.customerUnit = body.customerUnit ?? order.customerUnit ?? "";
+          order.issuedAt = body.issuedAt ?? order.issuedAt ?? "";
+          order.expectedEndAt = body.expectedEndAt ?? order.expectedEndAt ?? "";
           order.sourceFile = body.sourceFile || order.sourceFile || "";
-          order.lines = canonicalizeOrderLinesForRegulation(body.lines || [], regulation);
+          if (Array.isArray(body.lines)) {
+            order.lines = canonicalizeOrderLinesForRegulation(body.lines, regulation);
+          }
           order.totalWithoutVat = Number.isFinite(Number(body.totalWithoutVat))
             ? Number(body.totalWithoutVat)
             : order.lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);
