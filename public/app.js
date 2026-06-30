@@ -1859,7 +1859,7 @@ async function extractOrderFromSelectedFile() {
           dataUrl
         }
       });
-      if (result.extracted?.orderNumber && result.extracted.lines?.length >= 2) {
+      if (result.extracted?.orderNumber && result.extracted.lines?.length >= 1) {
         const inferredRegulation = fillOrderFormFromExtractedData(result.extracted);
         orderExtractionSucceeded = true;
         els.reviewOrderBtn.disabled = false;
@@ -1874,7 +1874,7 @@ async function extractOrderFromSelectedFile() {
       console.warn("Server extraction failed, trying local extraction", serverError);
     }
     const localExtracted = await extractOrderLocally(file);
-    if (!localExtracted?.orderNumber || localExtracted.lines?.length < 2) throw new Error("Local extraction did not find enough rows.");
+    if (!localExtracted?.orderNumber || localExtracted.lines?.length < 1) throw new Error("Local extraction did not find order rows.");
     const inferredRegulation = fillOrderFormFromExtractedData(localExtracted);
     orderExtractionSucceeded = true;
     els.reviewOrderBtn.disabled = false;

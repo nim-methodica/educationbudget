@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { inflateRawSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createDataBackup, getStorageStatus, initializeStorage, listBackups, readData, saveData } from "./storage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1113,7 +1113,7 @@ async function extractPdfText(buffer) {
     };
     globalThis.ImageData ||= class ImageData {};
     globalThis.Path2D ||= class Path2D {};
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const pdfjs = await import(pathToFileURL(path.join(PUBLIC_DIR, "vendor", "pdf.mjs")).href);
     const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
     const pages = [];
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
@@ -1321,9 +1321,10 @@ function isolateOrderBlock(text, orderNumber) {
 }
 
 function parseOrderLines(text) {
+  const sourceText = isolateOrderItemsSection(text);
   const lines = [];
   const seen = new Set();
-  for (const line of parseDelimitedOrderLines(text)) {
+  for (const line of parseDelimitedOrderLines(sourceText)) {
     const key = `${line.code}-${line.quantity}-${line.unitCost}`;
     if (!seen.has(key)) {
       seen.add(key);
@@ -1332,7 +1333,7 @@ function parseOrderLines(text) {
   }
   const rowPattern = /(^|\n)\s*(\d{1,2}(?:\.\d+)?)\s+(.{2,120}?)\s+(\d+(?:[,.]\d+)?)\s+(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:₪|ש"ח|NIS)?/g;
   let match;
-  while ((match = rowPattern.exec(text)) !== null) {
+  while ((match = rowPattern.exec(sourceText)) !== null) {
     const code = match[2];
     const name = cleanOrderItemName(match[3]) || knownTenderItemName(code);
     const quantity = parseNumber(match[4]);
@@ -1346,39 +1347,56 @@ function parseOrderLines(text) {
   return lines;
 }
 
-function parseDelimitedOrderLines(text) {
-  return String(text || "")
-    .split("\n")
-    .map((row) => row.split("|").map((cell) => cell.trim()).filter(Boolean))
-    .filter((cells) => /^\d{1,2}(?:\.\d+)?$/.test(cells[0] || ""))
-    .map((cells) => {
-      const code = cells[0];
-      const name = cleanOrderItemName(cells.slice(1).find((cell) => {
-        const text = String(cell || "").trim();
-        return isLikelyOrderItemName(text);
-      }) || "") || knownTenderItemName(code);
-      const numeric = cells.slice(1).map(parseNumber).filter((value) => Number.isFinite(value) && value > 0);
-      if (numeric.length < 2) return null;
-      let quantity;
-      let unitCost;
-      if (numeric.length >= 3 && Math.abs((numeric[0] * numeric[1]) - numeric[2]) <= Math.max(1, numeric[2] * 0.03)) {
-        quantity = numeric[0];
-        unitCost = numeric[1];
-      } else if (numeric.length >= 3) {
-        quantity = numeric[numeric.length - 2];
-        unitCost = numeric[numeric.length - 3];
-      } else if (numeric[1] > numeric[0] * 10) {
-        quantity = numeric[0];
-        unitCost = numeric[1] / numeric[0];
-      } else {
-        quantity = numeric[1];
-        unitCost = numeric[0];
-      }
-      return { code, name, quantity: normalizeKnownOrderQuantity(code, quantity, unitCost), unitCost };
-    })
-    .filter(Boolean);
+function isolateOrderItemsSection(text) {
+  const rows = String(text || "").split("\n");
+  const start = rows.findIndex((row) => /פירוט\s+ההזמנה/.test(row));
+  if (start < 0) return text;
+  const end = rows.findIndex((row, index) => index > start + 1 && /סה\s*\|?\s*"?\s*\|?\s*כ|הערות|הסדרי\s+תשלום|אבן\s+דרך/.test(row));
+  return rows.slice(start + 1, end > start ? end : rows.length).join("\n");
 }
+function parseDelimitedOrderLines(text) {
+  const rows = String(text || "")
+    .split("\n")
+    .map((row) => row.split("|").map((cell) => cell.trim()).filter(Boolean));
+  const parsed = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const cells = rows[index];
+    if (!/^\d{1,2}(?:\.\d+)?$/.test(cells[0] || "")) continue;
+    const code = cells[0];
+    const currentNumeric = cells.slice(1).map(parseNumber).filter((value) => Number.isFinite(value) && value > 0);
+    const nextNumeric = (rows[index + 1] || []).map(parseNumber).filter((value) => Number.isFinite(value) && value > 0);
+    const allNumeric = [...currentNumeric, ...nextNumeric];
+    if (allNumeric.length < 2) continue;
 
+    const name = cleanOrderItemName(cells.slice(1).filter((cell) => !Number.isFinite(parseNumber(cell))).join(" "))
+      || cleanOrderItemName(cells.slice(1).find((cell) => isLikelyOrderItemName(cell)) || "")
+      || knownTenderItemName(code);
+
+    let quantity;
+    let unitCost;
+    if (currentNumeric.length === 1 && nextNumeric.length >= 1) {
+      quantity = currentNumeric[0];
+      unitCost = nextNumeric[0];
+    } else if (allNumeric.length >= 3 && Math.abs((allNumeric[0] * allNumeric[1]) - allNumeric[2]) <= Math.max(1, allNumeric[2] * 0.03)) {
+      quantity = allNumeric[0];
+      unitCost = allNumeric[1];
+    } else if (allNumeric.length >= 3) {
+      quantity = allNumeric[allNumeric.length - 2];
+      unitCost = allNumeric[allNumeric.length - 3];
+    } else if (allNumeric[1] > allNumeric[0] * 10) {
+      quantity = allNumeric[0];
+      unitCost = allNumeric[1] / allNumeric[0];
+    } else {
+      quantity = allNumeric[1];
+      unitCost = allNumeric[0];
+    }
+
+    if (quantity > 0 && unitCost > 0) {
+      parsed.push({ code, name, quantity: normalizeKnownOrderQuantity(code, quantity, unitCost), unitCost });
+    }
+  }
+  return parsed;
+}
 function cleanOrderItemName(value) {
   const text = String(value || "")
     .replace(/\s+/g, " ")
@@ -1453,7 +1471,7 @@ function findFirstMatch(value, patterns) {
 }
 
 function guessProjectName(text, fileName) {
-  return findFirstMatch(text, [/(?:שם\s+פרויקט|תיאור)\s*[:\-]?\s*([^\n|]{4,100})/])
+  return findFirstMatch(text, [/שם\s+הפרויקט\s*\|\s*:?\s*\|?\s*([^\n|]{4,100})/, /(?:שם\s+פרויקט|תיאור)\s*[:\-]?\s*([^\n|]{4,100})/])
     || path.basename(fileName || "", path.extname(fileName || "")).replace(/[_-]+/g, " ").trim();
 }
 
@@ -1467,7 +1485,7 @@ function normalizeDate(value) {
 }
 
 function parseNumber(value) {
-  return Number(String(value || "").replace(/,/g, ""));
+  return Number(String(value || "").replace(/[₪,\s]/g, ""));
 }
 
 function findFramework(data, id) {
