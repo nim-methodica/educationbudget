@@ -295,7 +295,10 @@ function extractFrameworkUpdateFromUpload(data, upload) {
       sourceType: "change-plan",
       summary: changePlan.summary,
       cumulative: [],
-      changes: compareFrameworkUpdate(framework, changePlan.summary, changePlan.itemsByRegulation, { includeUnchanged: true })
+      changes: compareFrameworkUpdate(framework, changePlan.summary, changePlan.itemsByRegulation, {
+        includeUnchanged: true,
+        regulationNumbers: changePlan.regulationNumbers
+      })
     };
   }
 
@@ -332,12 +335,7 @@ function extractFrameworkUpdateFromUpload(data, upload) {
 }
 
 function extractFrameworkChangePlanFromSheets(sheets) {
-  const sheetColumns = {
-    "92": { beforeQuantity: 8, beforeAmount: 9, changeQuantity: 10, changeAmount: 11, afterQuantity: 12, afterAmount: 13 },
-    "46": { beforeQuantity: 8, beforeAmount: 9, changeQuantity: 10, changeAmount: 11, afterQuantity: 12, afterAmount: 13 },
-    "27": { beforeQuantity: 4, beforeAmount: 5, changeQuantity: 6, changeAmount: 7, afterQuantity: 8, afterAmount: 9 },
-    "73": { beforeQuantity: 4, beforeAmount: 5, changeQuantity: 6, changeAmount: 7, afterQuantity: 8, afterAmount: 9 }
-  };
+  const sheetColumns = {};
   const itemsByRegulation = { "92": [], "46": [], "27": [], "73": [] };
   const summary = {
     label: "תוכנית שינויים לפי חוצצי תקנות",
@@ -348,9 +346,12 @@ function extractFrameworkChangePlanFromSheets(sheets) {
   };
   let foundAny = false;
 
-  Object.entries(sheetColumns).forEach(([number, columns]) => {
-    const sheet = sheets.find((entry) => String(entry.name || "").trim() === number);
+  ["92", "46", "27", "73"].forEach((number) => {
+    const sheet = findFrameworkChangePlanSheet(sheets, number);
     if (!sheet) return;
+    const columns = detectFrameworkChangePlanColumns(sheet.rows);
+    if (!columns) return;
+    sheetColumns[number] = columns;
     const items = extractFrameworkChangePlanItems(sheet.rows, columns);
     if (!items.length) return;
     foundAny = true;
@@ -367,36 +368,108 @@ function extractFrameworkChangePlanFromSheets(sheets) {
 
   summary.total.withVat = round2(summary.total.withoutVat * (1 + VAT_RATE));
   Object.values(itemsByRegulation).forEach((items) => items.sort((a, b) => compareItemCodes(a.code, b.code)));
-  return foundAny ? { sheetName: "חוצצי תקנות 92/46/27/73", summary, itemsByRegulation } : null;
+  return foundAny ? {
+    sheetName: Object.keys(sheetColumns).map((number) => `תקנה ${number}`).join(", "),
+    summary,
+    itemsByRegulation,
+    regulationNumbers: Object.keys(sheetColumns)
+  } : null;
 }
 
+function findFrameworkChangePlanSheet(sheets, number) {
+  const exact = sheets.find((entry) => String(entry.name || "").trim() === number);
+  if (exact) return exact;
+  const fullNumbers = {
+    "92": [/20670192/, /20-67-01-92/],
+    "46": [/20670146/, /20-67-01-46/],
+    "27": [/20670127/, /20-67-01-27/],
+    "73": [/60267173/, /20-67-17-3/, /20-67-01-73/]
+  };
+  return sheets.find((entry) => {
+    const sheetName = String(entry.name || "");
+    const headerText = entry.rows.slice(0, 8).flat().join(" ");
+    return fullNumbers[number]?.some((pattern) => pattern.test(sheetName) || pattern.test(headerText));
+  });
+}
+
+function detectFrameworkChangePlanColumns(rows) {
+  const groupHeader = rows[1] || [];
+  const fieldHeader = rows[2] || [];
+  const quantityColumns = fieldHeader
+    .map((cell, index) => ({ cell: String(cell || "").trim(), index, group: String(groupHeader[index] || "").trim() }))
+    .filter((entry) => entry.cell === "כמות");
+  const afterColumns = quantityColumns.filter((entry) => /תוכנית עבודה לאחר שינויים/.test(entry.group));
+  const finalAfter = afterColumns.at(-1);
+  if (finalAfter) {
+    const changeColumn = quantityColumns
+      .filter((entry) => entry.index < finalAfter.index && /שינויים|שינוי/.test(entry.group))
+      .at(-1);
+    const previousAfter = afterColumns.filter((entry) => entry.index < finalAfter.index).at(-1);
+    const beforeColumn = previousAfter || quantityColumns.filter((entry) => entry.index < (changeColumn?.index ?? finalAfter.index)).at(-1);
+    return {
+      beforeQuantity: beforeColumn?.index ?? finalAfter.index,
+      beforeAmount: (beforeColumn?.index ?? finalAfter.index) + 1,
+      changeQuantity: changeColumn?.index ?? -1,
+      changeAmount: changeColumn ? changeColumn.index + 1 : -1,
+      afterQuantity: finalAfter.index,
+      afterAmount: finalAfter.index + 1
+    };
+  }
+
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 12); rowIndex += 1) {
+    const row = rows[rowIndex] || [];
+    const code = row.findIndex((cell) => /^סעיף$/.test(String(cell || "").trim()));
+    const name = row.findIndex((cell) => /יחידת חישוב|שם פריט|תיאור/.test(String(cell || "")));
+    const unitCost = row.findIndex((cell) => /מחיר ללא מע"?מ|עלות ללא מע"?מ/.test(String(cell || "")));
+    const quantity = row.findIndex((cell) => /^כמות$/.test(String(cell || "").trim()));
+    const amount = row.findIndex((cell) => /סה"?כ ללא מע"?מ|סכום ללא מע"?מ/.test(String(cell || "")));
+    if (code >= 0 && name >= 0 && unitCost >= 0 && quantity >= 0) {
+      return {
+        headerRowIndex: rowIndex,
+        code,
+        name,
+        unitCost,
+        beforeQuantity: -1,
+        beforeAmount: -1,
+        changeQuantity: -1,
+        changeAmount: -1,
+        afterQuantity: quantity,
+        afterAmount: amount >= 0 ? amount : -1
+      };
+    }
+  }
+  return null;
+}
 function extractFrameworkChangePlanItems(rows, columns) {
   const items = [];
-  rows.forEach((row) => {
-    const code = normalizeItemCode(row[0]);
-    const name = String(row[1] || "").trim();
-    const unitCost = parseNumber(row[2]);
-    if (!code || !name || !Number.isFinite(unitCost) || unitCost <= 0) return;
-    if (/סה"?כ|סהכ|סיכום|עלות/.test(name)) return;
+  rows.slice((columns.headerRowIndex ?? -1) + 1).forEach((row) => {
+    const code = normalizeItemCode(row[columns.code ?? 0]);
+    const name = String(row[columns.name ?? 1] || "").trim();
+    const unitCost = parseNumber(row[columns.unitCost ?? 2]);
+    if (!code || !name || !Number.isFinite(unitCost) || unitCost < 0) return;
+    if (/^(סה"?כ|סהכ|סיכום|עלות)\b/.test(name)) return;
 
-    const beforeQuantity = parseNumber(row[columns.beforeQuantity]);
-    const beforeAmount = parseNumber(row[columns.beforeAmount]);
-    const quantityChange = parseNumber(row[columns.changeQuantity]);
-    const amountChange = parseNumber(row[columns.changeAmount]);
+    const beforeQuantity = columns.beforeQuantity >= 0 ? parseNumber(row[columns.beforeQuantity]) : NaN;
+    const beforeAmount = columns.beforeAmount >= 0 ? parseNumber(row[columns.beforeAmount]) : NaN;
+    const rawQuantityChange = columns.changeQuantity >= 0 ? parseNumber(row[columns.changeQuantity]) : NaN;
+    const amountChange = columns.changeAmount >= 0 ? parseNumber(row[columns.changeAmount]) : NaN;
     const approvedQuantity = parseNumber(row[columns.afterQuantity]);
-    const amountWithoutVat = parseNumber(row[columns.afterAmount]);
-    const hasRelevantValue = [beforeQuantity, beforeAmount, quantityChange, amountChange, approvedQuantity, amountWithoutVat]
-      .some((value) => Number.isFinite(value) && value !== 0);
-    if (!hasRelevantValue) return;
+    const amountWithoutVat = columns.afterAmount >= 0 ? parseNumber(row[columns.afterAmount]) : NaN;
+    if (!Number.isFinite(approvedQuantity)) return;
+    const quantityChange = Number.isFinite(rawQuantityChange)
+      ? rawQuantityChange
+      : Number.isFinite(beforeQuantity)
+        ? approvedQuantity - beforeQuantity
+        : 0;
 
     items.push({
       code,
       name,
       unitCost: round3(unitCost),
       approvedQuantity: round3(approvedQuantity),
-      quantityChange: round3(quantityChange),
-      quantityBeforeChange: round3(beforeQuantity),
-      amountWithoutVat: round2(amountWithoutVat)
+      quantityChange: Number.isFinite(quantityChange) ? round3(quantityChange) : undefined,
+      quantityBeforeChange: Number.isFinite(beforeQuantity) ? round3(beforeQuantity) : undefined,
+      amountWithoutVat: round2(Number.isFinite(amountWithoutVat) ? amountWithoutVat : approvedQuantity * unitCost)
     });
   });
   return items;
@@ -451,7 +524,7 @@ function extractFrameworkItemsFromRows(rows, stopIndex) {
     const code = normalizeItemCode(row[0]);
     const name = String(row[1] || "").trim();
     const unitCost = parseNumber(row[2]);
-    if (!code || !name || !Number.isFinite(unitCost) || unitCost <= 0) return;
+    if (!code || !name || !Number.isFinite(unitCost) || unitCost < 0) return;
     regulationColumns.forEach((columns) => {
       const quantity = parseNumber(row[columns.quantity]);
       const amount = parseNumber(row[columns.amount]);
@@ -510,7 +583,11 @@ function extractReportTotals(rows, anchorIndex, columns) {
 }
 
 function compareFrameworkUpdate(framework, summary, itemsByRegulation, options = {}) {
-  const regulationChanges = framework.regulations.map((regulation) => {
+  const allowedRegulations = options.regulationNumbers ? new Set(options.regulationNumbers.map(String)) : null;
+  const relevantRegulations = allowedRegulations
+    ? framework.regulations.filter((regulation) => allowedRegulations.has(String(regulation.number)))
+    : framework.regulations;
+  const regulationChanges = relevantRegulations.map((regulation) => {
     const extracted = summary.regulations[regulation.number] || { withoutVat: 0, withVat: 0 };
     const current = Number(regulation.frameworkAmount || 0);
     return {
@@ -525,7 +602,7 @@ function compareFrameworkUpdate(framework, summary, itemsByRegulation, options =
     };
   });
 
-  const itemChanges = framework.regulations.flatMap((regulation) => {
+  const itemChanges = relevantRegulations.flatMap((regulation) => {
     const current = new Map((regulation.items || []).map((item) => [item.code, item]));
     const extracted = new Map((itemsByRegulation[regulation.number] || []).map((item) => [item.code, item]));
     const codes = [...new Set([...current.keys(), ...extracted.keys()])].sort(compareItemCodes);
@@ -536,7 +613,12 @@ function compareFrameworkUpdate(framework, summary, itemsByRegulation, options =
       const quantityDelta = round2(Number(after?.approvedQuantity || 0) - Number(before?.approvedQuantity || 0));
       const unitDelta = round2(Number(after?.unitCost || 0) - Number(before?.unitCost || 0));
       const nameChanged = Boolean(before && after && before.name !== after.name);
-      const fileQuantityChange = round2(after?.quantityChange || 0);
+      const fileQuantityBeforeChange = Number.isFinite(Number(after?.quantityBeforeChange))
+        ? round2(after.quantityBeforeChange)
+        : round2(before?.approvedQuantity || 0);
+      const fileQuantityChange = Number.isFinite(Number(after?.quantityChange))
+        ? round2(after.quantityChange)
+        : quantityDelta;
       const unchanged = status === "changed" && fileQuantityChange === 0 && quantityDelta === 0 && unitDelta === 0 && !nameChanged;
       return {
         regulationNumber: regulation.number,
@@ -546,7 +628,7 @@ function compareFrameworkUpdate(framework, summary, itemsByRegulation, options =
         currentName: before?.name || "",
         extractedName: after?.name || "",
         currentQuantity: round2(before?.approvedQuantity || 0),
-        fileQuantityBeforeChange: round2(after?.quantityBeforeChange || 0),
+        fileQuantityBeforeChange,
         fileQuantityChange,
         extractedQuantity: round2(after?.approvedQuantity || 0),
         quantityDelta,
@@ -1917,6 +1999,10 @@ http.createServer(async (req, res) => {
 }).listen(PORT, () => {
   console.log(`Budget manager is running at http://localhost:${PORT}`);
 });
+
+
+
+
 
 
 

@@ -1577,3 +1577,32 @@ dialog::backdrop {
   }
 }
 
+
+.compact-number-input {
+  width: 96px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  text-align: center;
+  background: #fff;
+}
+
+.framework-items-toolbar {
+  align-items: center;
+}
+
+.update-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  margin-top: 14px;
+  padding: 12px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), #fff 36%);
+}
+
+.update-actions button:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}

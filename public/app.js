@@ -483,14 +483,25 @@ function bindEvents() {
     toggleFrameworkExceptionVerification(button.dataset.frameworkId, button.dataset.exceptionKey);
     openFrameworkItemsDialog();
   });
+  els.frameworkItemsContent.addEventListener("input", (event) => {
+    if (!event.target.matches("[data-framework-item-quantity]")) return;
+    updateManualFrameworkItemRow(event.target);
+  });
+  els.frameworkItemsContent.addEventListener("click", (event) => {
+    if (!event.target.closest("#saveFrameworkItemsManualBtn")) return;
+    saveManualFrameworkItems();
+  });
   els.budgetControlBtn.addEventListener("click", () => openBudgetControlDialog());
   els.frameworkUpdateBtn.addEventListener("click", () => openFrameworkUpdateDialog());
   els.frameworkUpdateFileInput.addEventListener("change", () => extractFrameworkUpdateFromSelectedFile());
   els.frameworkUpdatePreview.addEventListener("input", (event) => {
     if (event.target.matches(".framework-change-input")) updateFrameworkPreviewRow(event.target);
   });
-  els.frameworkUpdatePreview.addEventListener("click", (event) => {
-    if (event.target.closest("#applyFrameworkUpdateBtn")) applyFrameworkUpdateDraft();
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-apply-framework-update]");
+    if (!button) return;
+    event.preventDefault();
+    applyFrameworkUpdateDraft(button);
   });
   els.cumulativeExecutionBtn.addEventListener("click", () => openCumulativeExecutionDialog());
   els.cumulativeExecutionFileInput.addEventListener("change", () => extractCumulativeExecutionFromSelectedFile());
@@ -892,8 +903,8 @@ function renderFrameworkUpdatePreview(result) {
           <tbody>${visibleItemRows || `<tr><td colspan="9" class="muted">לא נמצאו שינויי פריטים.</td></tr>`}</tbody>
         </table>
       </div>
-      <div class="dialog-actions">
-        <button id="applyFrameworkUpdateBtn" type="button" ${itemChanges.length ? "" : "disabled"}>עדכן פריטים</button>
+      <div class="dialog-actions update-actions">
+        <button id="applyFrameworkUpdateBtn" data-apply-framework-update type="button" ${itemChanges.length ? "" : "disabled"}>עדכן פריטים</button>
       </div>
     </section>
   `;
@@ -930,7 +941,8 @@ function updateFrameworkPreviewRow(input) {
   }
 }
 
-async function applyFrameworkUpdateDraft() {
+async function applyFrameworkUpdateDraft(button = null) {
+  if (button?.disabled) return;
   const rows = [...els.frameworkUpdatePreview.querySelectorAll("tbody tr[data-regulation]")].map((row) => ({
     regulationNumber: row.dataset.regulation,
     code: row.dataset.code,
@@ -938,7 +950,12 @@ async function applyFrameworkUpdateDraft() {
     unitCost: Number(row.dataset.unitCost || 0),
     approvedQuantity: Number(row.querySelector(".after-quantity-cell")?.dataset.value || 0)
   }));
-  if (!rows.length) return;
+  if (!rows.length) {
+    els.frameworkUpdateStatus.className = "extraction-status error";
+    els.frameworkUpdateStatus.textContent = "אין פריטים תקינים לעדכון.";
+    return;
+  }
+  if (button) button.disabled = true;
   els.frameworkUpdateStatus.className = "extraction-status working";
   els.frameworkUpdateStatus.textContent = "מעדכן את פריטי המסגרת לפי הטבלה שאישרת...";
   try {
@@ -955,6 +972,7 @@ async function applyFrameworkUpdateDraft() {
     els.frameworkUpdateStatus.className = "extraction-status ok";
     els.frameworkUpdateStatus.textContent = "פריטי המסגרת עודכנו. הניצול והגביה לא שונו.";
   } catch (error) {
+    if (button) button.disabled = false;
     els.frameworkUpdateStatus.className = "extraction-status error";
     els.frameworkUpdateStatus.textContent = error.message || "לא הצלחתי לעדכן את פריטי המסגרת.";
   }
@@ -1479,6 +1497,7 @@ function renderFrameworkItemsReport(framework) {
         <input id="frameworkExceptionsOnly" type="checkbox" />
         <span>הצג חריגות בלבד</span>
       </label>
+      <button id="saveFrameworkItemsManualBtn" type="button">שמור שינויי כמויות</button>
     </div>
     ${orderedRegulations.map((regulation) => {
     const rows = buildFrameworkItemRows(regulation);
@@ -1514,11 +1533,19 @@ function renderFrameworkItemsReport(framework) {
                 const exceptionKey = `${regulation.number}:${row.code}`;
                 const isVerifiedException = row.isException && isFrameworkExceptionVerified(framework.id, exceptionKey);
                 return `
-                <tr class="${row.missingFromFramework ? "missing-row" : ""} ${row.isException ? "exception-row" : ""} ${isVerifiedException ? "verified-exception-row" : ""}">
+                <tr class="${row.missingFromFramework ? "missing-row" : ""} ${row.isException ? "exception-row" : ""} ${isVerifiedException ? "verified-exception-row" : ""}"
+                    data-framework-item-row
+                    data-regulation="${escapeHtml(regulation.number)}"
+                    data-code="${escapeHtml(row.code)}"
+                    data-name="${escapeHtml(row.name)}"
+                    data-unit-cost="${row.unitCost}"
+                    data-reserved-quantity="${row.reservedQuantity}">
                   <td><strong>${escapeHtml(row.code)}</strong></td>
                   <td>${escapeHtml(row.name)}</td>
                   <td>${formatCurrency(row.unitCost)}</td>
-                  <td>${formatNumber(row.approvedQuantity)}</td>
+                  <td>
+                    <input class="compact-number-input" data-framework-item-quantity type="number" step="0.001" value="${escapeHtml(row.approvedQuantity)}" />
+                  </td>
                   <td>
                     ${row.orderBreakdown.length ? `
                       <button class="table-link-button" type="button" data-breakdown-target="${breakdownId}" aria-expanded="false">
@@ -1527,10 +1554,10 @@ function renderFrameworkItemsReport(framework) {
                     ` : formatNumber(row.reservedQuantity)}
                   </td>
                   <td>${formatNumber(row.collectedQuantity)}</td>
-                  <td>${formatNumber(row.remainingQuantity)}</td>
-                  <td>${formatCurrency(row.approvedAmount)}</td>
+                  <td data-framework-item-remaining>${formatNumber(row.remainingQuantity)}</td>
+                  <td data-framework-item-approved-amount>${formatCurrency(row.approvedAmount)}</td>
                   <td>${formatCurrency(row.reservedAmount)}</td>
-                  <td>${formatCurrency(row.remainingAmount)}</td>
+                  <td data-framework-item-remaining-amount>${formatCurrency(row.remainingAmount)}</td>
                   <td>${renderFrameworkItemStatus(row, framework.id, exceptionKey, isVerifiedException)}</td>
                 </tr>
                 ${row.orderBreakdown.length ? `
@@ -1551,6 +1578,50 @@ function renderFrameworkItemsReport(framework) {
   `;
 }
 
+
+function updateManualFrameworkItemRow(input) {
+  const row = input.closest("[data-framework-item-row]");
+  if (!row) return;
+  const approvedQuantity = Number(input.value || 0);
+  const reservedQuantity = Number(row.dataset.reservedQuantity || 0);
+  const unitCost = Number(row.dataset.unitCost || 0);
+  const remainingQuantity = approvedQuantity - reservedQuantity;
+  const approvedAmount = approvedQuantity * unitCost;
+  const remainingAmount = remainingQuantity * unitCost;
+  const remainingCell = row.querySelector("[data-framework-item-remaining]");
+  const approvedAmountCell = row.querySelector("[data-framework-item-approved-amount]");
+  const remainingAmountCell = row.querySelector("[data-framework-item-remaining-amount]");
+  if (remainingCell) remainingCell.textContent = formatNumber(remainingQuantity);
+  if (approvedAmountCell) approvedAmountCell.textContent = formatCurrency(approvedAmount);
+  if (remainingAmountCell) remainingAmountCell.textContent = formatCurrency(remainingAmount);
+  row.classList.toggle("exception-row", remainingQuantity < 0);
+}
+
+async function saveManualFrameworkItems() {
+  const rows = [...els.frameworkItemsContent.querySelectorAll("[data-framework-item-row]")].map((row) => ({
+    regulationNumber: row.dataset.regulation,
+    code: row.dataset.code,
+    name: row.dataset.name,
+    unitCost: Number(row.dataset.unitCost || 0),
+    approvedQuantity: Number(row.querySelector("[data-framework-item-quantity]")?.value || 0)
+  }));
+  if (!rows.length) return;
+  try {
+    await api("/api/apply-framework-update", {
+      method: "POST",
+      body: {
+        frameworkId: selectedFrameworkId,
+        sourceFileName: "עדכון ידני מפריטי מסגרת",
+        rows
+      }
+    });
+    await loadState();
+    render();
+    openFrameworkItemsDialog();
+  } catch (error) {
+    alert(error.message || "לא הצלחתי לשמור את שינויי הכמויות.");
+  }
+}
 function buildFrameworkItemRows(regulation) {
   const itemMap = new Map((regulation.items || []).map((item) => [item.code, {
     code: item.code,
@@ -3334,6 +3405,9 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+
+
 
 
 
